@@ -30,18 +30,33 @@ SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
 
 def get_credentials():
     """
-    1) Streamlit Cloud: st.secrets["gcp_service_account"]에서 JSON 문자열 읽기
-    2) 로컬 개발: google_service_account.json 파일에서 읽기
+    1) Cloud / 로컬 둘 다에서 st.secrets["gcp_service_account"] 먼저 사용
+    2) 그래도 없으면, 로컬 개발용으로 google_service_account.json 파일 시도
+    3) 둘 다 없으면 명확한 에러
     """
-    # 1) 먼저 secrets 사용 시도 (Cloud / 로컬 .streamlit/secrets.toml)
-    try:
-        raw_json = st.secrets["gcp_service_account"]
-        service_account_info = json.loads(raw_json)
+    # 1) secrets에 있는 경우 (Cloud에서 사용)
+    if "gcp_service_account" in st.secrets:
+        info = st.secrets["gcp_service_account"]
+
+        # secrets.toml에 JSON 문자열로 넣었을 때 (""" { ... } """)
+        if isinstance(info, str):
+            service_account_info = json.loads(info)
+        else:
+            # [gcp_service_account] 형태의 TOML 테이블로 넣었을 때
+            service_account_info = dict(info)
+
         return Credentials.from_service_account_info(service_account_info, scopes=SCOPES)
-    except Exception:
-        # 2) 실패하면 로컬 파일 사용 (현재까지 네가 쓰던 방식)
-        service_account_file = os.path.join(BASE_DIR, "google_service_account.json")
+
+    # 2) 로컬 json 파일 (Cloud에는 없음)
+    service_account_file = os.path.join(BASE_DIR, "google_service_account.json")
+    if os.path.exists(service_account_file):
         return Credentials.from_service_account_file(service_account_file, scopes=SCOPES)
+
+    # 3) 둘 다 없으면 명확하게 죽이기
+    raise FileNotFoundError(
+        "No credentials found. Set 'gcp_service_account' in Streamlit secrets "
+        "or put google_service_account.json next to app.py."
+    )
 
 
 # 인증 및 시트 열기
