@@ -1,0 +1,13 @@
+# Python venv
+venv/
+__pycache__/
+*.pyc
+
+# VS Code 설정
+.vscode/
+
+# Streamlit
+.streamlit/
+
+# Google service account key (VERY IMPORTANT)
+google_service_account.json
