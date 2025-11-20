@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import os
+import json
 
 import gspread
 from google.oauth2.service_account import Credentials
@@ -15,38 +16,48 @@ st.set_page_config(
 )
 
 # ---------------------------
-# 1. Google Sheets 설정 (URL 사용)
+# 1. 공통 설정 (경로, 시트 URL, 스코프)
 # ---------------------------
 
-# 이 파일(app.py)이 있는 폴더 경로
+# app.py가 있는 폴더 경로
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
-# 서비스 계정 JSON 파일 경로
-# 파일 이름이 다르면 "google_service_account.json" 부분만 네 파일명으로 바꿔줘.
-SERVICE_ACCOUNT_FILE = os.path.join(BASE_DIR, "google_service_account.json")
 
 # 네가 준 구글 시트 전체 URL
 SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1khJ4XMVEb9N3oQbwVqnz6loVM-yvMkRik-6NMQH6IKA/edit?gid=1896609182#gid=1896609182"
 
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
 
-# 인증
-credentials = Credentials.from_service_account_file(
-    SERVICE_ACCOUNT_FILE,
-    scopes=SCOPES,
-)
-gc = gspread.authorize(credentials)
 
-# 스프레드시트 & '주간업무' 시트 열기
+def get_credentials():
+    """
+    1) Streamlit Cloud: st.secrets["gcp_service_account"]에서 JSON 문자열 읽기
+    2) 로컬 개발: google_service_account.json 파일에서 읽기
+    """
+    # 1) 먼저 secrets 사용 시도 (Cloud / 로컬 .streamlit/secrets.toml)
+    try:
+        raw_json = st.secrets["gcp_service_account"]
+        service_account_info = json.loads(raw_json)
+        return Credentials.from_service_account_info(service_account_info, scopes=SCOPES)
+    except Exception:
+        # 2) 실패하면 로컬 파일 사용 (현재까지 네가 쓰던 방식)
+        service_account_file = os.path.join(BASE_DIR, "google_service_account.json")
+        return Credentials.from_service_account_file(service_account_file, scopes=SCOPES)
+
+
+# 인증 및 시트 열기
 try:
+    credentials = get_credentials()
+    gc = gspread.authorize(credentials)
     sh = gc.open_by_url(SPREADSHEET_URL)
     worksheet = sh.worksheet("주간업무")  # 탭 이름이 정확히 '주간업무' 여야 함
 except Exception as e:
     st.error("❌ Google Sheet 연결 중 오류가 발생했습니다.")
     st.write("아래 항목들을 다시 확인해 주세요:")
     st.write("1) SPREADSHEET_URL이 실제 주간업무 시트 주소인지")
-    st.write("2) 서비스 계정 이메일이 해당 시트에 '공유'되어 있는지")
-    st.write("3) 시트 탭 이름이 정확히 '주간업무'인지")
+    st.write("2) 로컬이면 google_service_account.json 파일이 폴더 안에 있는지")
+    st.write("3) Cloud면 secrets에 gcp_service_account가 제대로 설정됐는지")
+    st.write("4) 서비스 계정 이메일이 해당 시트에 '공유'되어 있는지")
+    st.write("5) 시트 탭 이름이 정확히 '주간업무'인지")
     st.exception(e)
     st.stop()
 
