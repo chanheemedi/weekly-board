@@ -428,7 +428,6 @@ def main():
     edited_single = {}      # 단일 부서 모드에서 사용: {week_str: text}
 
     if dept_filter == "전체 부서":
-        # 상단 제목 - "업무 내용" 문구 제거
         st.markdown(f"#### {selected_week}")
 
         cols_main = st.columns(2)
@@ -441,9 +440,10 @@ def main():
             with col:
                 with st.container(border=True):
                     st.markdown(f"**{dept}**")
-                    ta_key = f"ta_{dept}"
+                    # 🔑 주차까지 포함해서 key를 만들기
+                    ta_key = f"ta_{dept}_{selected_week}"
                     edited = st.text_area(
-                        label=f"{dept} 업무 내용",   # ▶ 숨겨진 라벨
+                        label=f"{dept} 업무 내용",   # 숨긴 라벨
                         value=current_text,
                         height=320,
                         key=ta_key,
@@ -452,6 +452,7 @@ def main():
                         args=(int(row["_sheet_row"]), dept, ta_key),
                     )
                     edited_values[dept] = edited
+
     else:
         # 단독 부서 모드: 최신(선택) 기간 + 직전 기간 나란히
         dept = dept_filter
