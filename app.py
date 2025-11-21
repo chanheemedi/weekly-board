@@ -237,10 +237,10 @@ def main():
         # 인쇄 / 동기화 - 한 줄에 두 버튼
         btn_cols = st.columns(2)
         with btn_cols[0]:
-            if st.button("🖨 인쇄 미리보기", width="stretch"):
+            if st.button("🖨 인쇄 미리보기", use_container_width=True):
                 st.session_state["print_requested"] = True
         with btn_cols[1]:
-            if st.button("🔄 데이터 동기화", width="stretch"):
+            if st.button("🔄 데이터 동기화", use_container_width=True):
                 load_data.clear()
                 st.rerun()
 
@@ -294,7 +294,7 @@ def main():
         new_week_str = f"{new_start:%Y.%m.%d}~{new_end:%Y.%m.%d}"
         st.caption(f"새 기간 미리보기: **{new_week_str}**")
 
-        if st.button("새 기간 추가('기간선택'에서 없는 경우)", width="stretch"):
+        if st.button("새 기간 추가('기간선택'에서 없는 경우)", use_container_width=True):
             headers = ws.row_values(1)
             new_row = ["" for _ in headers]
             if WEEK_COL in headers:
@@ -331,7 +331,7 @@ def main():
                 if st.button(
                     dept,
                     key=f"dept_btn_{dept}",
-                    width="stretch",
+                    use_container_width=True,
                     type=button_type,
                 ):
                     # 클릭된 부서를 상태에 반영하고 즉시 rerun해서
@@ -357,11 +357,11 @@ def main():
         edited_dept_df = st.data_editor(
             dept_df,
             num_rows="dynamic",
-            width="stretch",
+            use_container_width=True,
             key="dept_editor",
         )
 
-        if st.button("부서 변경 사항 저장", width="stretch"):
+        if st.button("부서 변경 사항 저장", use_container_width=True):
             original = dept_cols
             new_list = [
                 str(x).strip()
@@ -428,6 +428,7 @@ def main():
     edited_single = {}      # 단일 부서 모드에서 사용: {week_str: text}
 
     if dept_filter == "전체 부서":
+        # 상단 제목 - "업무 내용" 문구 제거
         st.markdown(f"#### {selected_week}")
 
         cols_main = st.columns(2)
@@ -440,10 +441,9 @@ def main():
             with col:
                 with st.container(border=True):
                     st.markdown(f"**{dept}**")
-                    # 🔑 주차까지 포함해서 key를 만들기
-                    ta_key = f"ta_{dept}_{selected_week}"
+                    ta_key = f"ta_{dept}"
                     edited = st.text_area(
-                        label=f"{dept} 업무 내용",   # 숨긴 라벨
+                        label=f"{dept} 업무 내용",   # ▶ 숨겨진 라벨
                         value=current_text,
                         height=320,
                         key=ta_key,
@@ -452,7 +452,6 @@ def main():
                         args=(int(row["_sheet_row"]), dept, ta_key),
                     )
                     edited_values[dept] = edited
-
     else:
         # 단독 부서 모드: 최신(선택) 기간 + 직전 기간 나란히
         dept = dept_filter
