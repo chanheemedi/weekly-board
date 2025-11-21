@@ -237,10 +237,10 @@ def main():
         # 인쇄 / 동기화 - 한 줄에 두 버튼
         btn_cols = st.columns(2)
         with btn_cols[0]:
-            if st.button("🖨 인쇄 미리보기", use_container_width=True):
+            if st.button("🖨 인쇄 미리보기", width="stretch"):
                 st.session_state["print_requested"] = True
         with btn_cols[1]:
-            if st.button("🔄 데이터 동기화", use_container_width=True):
+            if st.button("🔄 데이터 동기화", width="stretch"):
                 load_data.clear()
                 st.rerun()
 
@@ -294,7 +294,7 @@ def main():
         new_week_str = f"{new_start:%Y.%m.%d}~{new_end:%Y.%m.%d}"
         st.caption(f"새 기간 미리보기: **{new_week_str}**")
 
-        if st.button("새 기간 추가('기간선택'에서 없는 경우)", use_container_width=True):
+        if st.button("새 기간 추가('기간선택'에서 없는 경우)", width="stretch"):
             headers = ws.row_values(1)
             new_row = ["" for _ in headers]
             if WEEK_COL in headers:
@@ -331,7 +331,7 @@ def main():
                 if st.button(
                     dept,
                     key=f"dept_btn_{dept}",
-                    use_container_width=True,
+                    width="stretch",
                     type=button_type,
                 ):
                     # 클릭된 부서를 상태에 반영하고 즉시 rerun해서
@@ -357,11 +357,11 @@ def main():
         edited_dept_df = st.data_editor(
             dept_df,
             num_rows="dynamic",
-            use_container_width=True,
+            width="stretch",
             key="dept_editor",
         )
 
-        if st.button("부서 변경 사항 저장", use_container_width=True):
+        if st.button("부서 변경 사항 저장", width="stretch"):
             original = dept_cols
             new_list = [
                 str(x).strip()
