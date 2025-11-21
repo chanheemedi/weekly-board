@@ -1,4 +1,24 @@
-streamlit
-pandas
-gspread
-google-auth
+# Streamlit & 데이터
+streamlit>=1.37,<1.40
+pandas>=2.2.2,<2.3
+numpy>=1.26
+
+# Supabase (Python SDK)
+supabase>=2.5,<3
+
+# 엑셀(읽기/쓰기) — 엑셀 업로드/다운로드가 있다면 필수
+openpyxl>=3.1.2
+xlsxwriter>=3.2.0 # to_excel 다운로드용 (선택)
+
+# Google 스프레드시트 연동 사용 시
+gspread>=6.1.2
+google-auth>=2.31.0
+gspread-dataframe>=3.3.1 # DataFrame↔시트 편리 (선택)
+google-auth-oauthlib>=1.2
+
+# (선택) CSV/Parquet 속도 개선
+pyarrow>=16.1.0
+
+# 기타
+requests>=2.32
+pypdf>=4.3.1
