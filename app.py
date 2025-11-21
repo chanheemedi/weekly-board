@@ -1,7 +1,5 @@
 import re
 from datetime import datetime, timedelta
-import streamlit as st
-# ... 기존 import 들 ...
 
 import gspread
 from gspread.cell import Cell
@@ -11,7 +9,6 @@ from google.oauth2.service_account import Credentials
 import streamlit.components.v1 as components
 
 WEEK_COL = "WEEK"
-
 
 @st.cache_resource(show_spinner=False)
 def get_worksheet():
@@ -27,7 +24,6 @@ def get_worksheet():
     sh = client.open_by_key(st.secrets["gsheet"]["spreadsheet_id"])
     ws = sh.worksheet(st.secrets["gsheet"]["worksheet_name"])
     return ws
-
 
 @st.cache_data(show_spinner=False)
 def load_data():
@@ -91,10 +87,8 @@ def load_data():
 
     return df
 
-
 def get_dept_columns(df: pd.DataFrame):
     return [c for c in df.columns if c not in [WEEK_COL] and not c.startswith("_")]
-
 
 def parse_week_range(week_str: str):
     try:
@@ -105,7 +99,6 @@ def parse_week_range(week_str: str):
     except Exception:
         return None, None
 
-
 def get_col_index(ws, col_name: str):
     headers = ws.row_values(1)
     try:
@@ -113,7 +106,22 @@ def get_col_index(ws, col_name: str):
     except ValueError:
         return None
 
-
+def save_cell(sheet_row: int, col_name: str, key: str):
+    """텍스트 입력이 끝난 시점에 해당 셀을 바로 구글 시트에 반영하는 자동 저장 콜백."""
+    ws = get_worksheet()
+    col_idx = get_col_index(ws, col_name)
+    if col_idx is None:
+        st.warning(f"'{col_name}' 열을 찾을 수 없어 자동 저장에 실패했습니다.")
+        return
+    value = st.session_state.get(key, "")
+    ws.update_cell(sheet_row, col_idx, value)
+    # ✅ 여기 추가: 캐시를 지워서 다음 실행 때 항상 최신 데이터 사용
+    load_data.clear()
+    # 과도한 알림을 막기 위해 토스트가 지원되면 가볍게만 표시
+    try:
+        st.toast("자동 저장 완료", icon="💾")
+    except Exception:
+        st.success("자동 저장 완료")
 def escape_html(text: str) -> str:
     if text is None:
         return ""
@@ -121,7 +129,6 @@ def escape_html(text: str) -> str:
     text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     text = text.replace("\n", "<br>")
     return text
-
 
 def main():
     app_title = "HISMEDI † Weekly report"
@@ -137,8 +144,8 @@ def main():
         """
         <style>
         [data-testid="stSidebar"] {
-            min-width: 390px;
-            max-width: 410px;
+            min-width: 440px;
+            max-width: 460px;
             padding-top: 0;
         }
         [data-testid="stSidebar"] * {
@@ -206,27 +213,27 @@ def main():
 
     # ---------------------- Sidebar ----------------------
     with st.sidebar:
-        # Title (조금 더 예쁘게)
         st.markdown(
             f"""
             <div style="
-                margin-top:0;
+                width:100%;
+                margin-top:-0.8rem;
                 margin-bottom:0.3rem;
-                font-size:1.55rem;
-                font-weight:800;
-                letter-spacing:0.04em;
-                color:#1f2937;
+                font-size:2.0rem;
+                font-weight:900;
+                letter-spacing:0.05em;
+                color:#111827;
             ">
                 {app_title}
             </div>
             """,
             unsafe_allow_html=True,
         )
+
         st.markdown(
             "<hr style='margin:0.25rem 0; border:0; border-top:1px solid #e0e0e0;' />",
             unsafe_allow_html=True,
         )
-
         # 인쇄 / 동기화 - 한 줄에 두 버튼
         btn_cols = st.columns(2)
         with btn_cols[0]:
@@ -264,7 +271,7 @@ def main():
             unsafe_allow_html=True,
         )
         unit_choice = st.radio(
-            "",
+            "새 기간 길이 선택",   # ▶ 숨겨진 라벨 (경고 제거용)
             ["직전 기간과 동일", "1주", "2주"],
             index=0,
             horizontal=True,
@@ -287,7 +294,7 @@ def main():
         new_week_str = f"{new_start:%Y.%m.%d}~{new_end:%Y.%m.%d}"
         st.caption(f"새 기간 미리보기: **{new_week_str}**")
 
-        if st.button("새 기간 행 추가", use_container_width=True):
+        if st.button("새 기간 추가('기간선택'에서 없는 경우)", use_container_width=True):
             headers = ws.row_values(1)
             new_row = ["" for _ in headers]
             if WEEK_COL in headers:
@@ -327,10 +334,13 @@ def main():
                     use_container_width=True,
                     type=button_type,
                 ):
+                    # 클릭된 부서를 상태에 반영하고 즉시 rerun해서
+                    # 버튼 색과 메인 내용이 바로 일치하게 만든다.
                     st.session_state["selected_dept"] = dept
-                    current_dept = dept
+                    st.rerun()
 
-        dept_filter = current_dept
+        # 현재 선택된 부서 필터
+        dept_filter = st.session_state.get("selected_dept", "전체 부서")
 
         st.markdown(
             "<hr style='margin:0.35rem 0; border:0; border-top:1px solid #e0e0e0;' />",
@@ -431,12 +441,15 @@ def main():
             with col:
                 with st.container(border=True):
                     st.markdown(f"**{dept}**")
+                    ta_key = f"ta_{dept}"
                     edited = st.text_area(
-                        label="",
+                        label=f"{dept} 업무 내용",   # ▶ 숨겨진 라벨
                         value=current_text,
                         height=320,
-                        key=f"ta_{dept}",
+                        key=ta_key,
                         label_visibility="collapsed",
+                        on_change=save_cell,
+                        args=(int(row["_sheet_row"]), dept, ta_key),
                     )
                     edited_values[dept] = edited
     else:
@@ -453,15 +466,17 @@ def main():
         with cols[0]:
             with st.container(border=True):
                 st.markdown(f"**{selected_week} · {dept}**")
+                ta_key_cur = f"ta_{dept}_{selected_week}"
                 edited_cur = st.text_area(
-                    label="",
+                    label=f"{selected_week} · {dept} 업무 내용",  # ▶ 숨겨진 라벨
                     value=cur_text,
                     height=450,
-                    key=f"ta_{dept}_{selected_week}",
+                    key=ta_key_cur,
                     label_visibility="collapsed",
+                    on_change=save_cell,
+                    args=(int(row["_sheet_row"]), dept, ta_key_cur),
                 )
                 edited_single[selected_week] = edited_cur
-
 
         # 직전 기간이 존재하면 오른쪽에 배치
         if prev_row is not None:
@@ -473,12 +488,15 @@ def main():
             with cols[1]:
                 with st.container(border=True):
                     st.markdown(f"**{prev_week} · {dept}**")
+                    ta_key_prev = f"ta_{dept}_{prev_week}"
                     edited_prev = st.text_area(
-                        label="",
+                        label=f"{prev_week} · {dept} 업무 내용",  # ▶ 숨겨진 라벨
                         value=prev_text,
                         height=450,
-                        key=f"ta_{dept}_{prev_week}",
+                        key=ta_key_prev,
                         label_visibility="collapsed",
+                        on_change=save_cell,
+                        args=(int(prev_row["_sheet_row"]), dept, ta_key_prev),
                     )
                     edited_single[prev_week] = edited_prev
 
