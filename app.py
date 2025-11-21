@@ -3,8 +3,6 @@ from datetime import datetime, timedelta
 import streamlit as st
 # ... 기존 import 들 ...
 
-st.write("DEBUG secrets keys:", list(st.secrets.keys()))
-
 import gspread
 from gspread.cell import Cell
 import pandas as pd
