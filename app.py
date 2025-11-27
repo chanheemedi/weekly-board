@@ -149,7 +149,12 @@ def main():
     except Exception:
         pass
 
-    st.set_page_config(page_title=app_title, layout="wide")
+    # 모바일에서 기본으로 사이드바 접힌 상태
+    st.set_page_config(
+        page_title=app_title,
+        layout="wide",
+        initial_sidebar_state="collapsed",
+    )
 
     # ---------- 전역 스타일 ----------
     st.markdown(
@@ -216,6 +221,25 @@ def main():
         .stLinkButton > button:hover {
             background-color: #e5e7eb;
             border-color: #d1d5db;
+        }
+
+        /* 📱 모바일 화면 대응 (폭이 900px 이하인 경우) */
+        @media (max-width: 900px) {
+            /* 사이드바 폭 줄이기 */
+            [data-testid="stSidebar"] {
+                min-width: 260px;
+                max-width: 260px;
+            }
+            /* 본문 좌우 여백 조금 줄이기 */
+            [data-testid="block-container"] {
+                padding-left: 0.6rem;
+                padding-right: 0.6rem;
+            }
+            /* 상단 링크 버튼은 가로 전체를 쓰도록 */
+            .stLinkButton > button {
+                width: 100%;
+                margin-bottom: 0.25rem;
+            }
         }
         </style>
         """,
@@ -488,7 +512,6 @@ def main():
             with col:
                 with st.container(border=True):
                     st.markdown(f"**{dept}**")
-                    # 🔑 주차까지 포함해서 key 생성 → 기간 변경 시 내용 섞임 방지
                     ta_key = f"ta_{dept}_{selected_week}"
                     edited = st.text_area(
                         label=f"{dept} 업무 내용",
