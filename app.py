@@ -146,7 +146,7 @@ def toggle_sidebar(to_state: str):
     """
     to_state: 'hide' 또는 'show'
     Streamlit 내부 사이드바 토글 버튼을 JS로 클릭해서
-    사이드바를 접거나(pinch), 펼치는(expand) 역할.
+    사이드바를 접거나 펼치는 역할.
     """
     to_state = "hide" if to_state == "hide" else "show"
     components.html(
@@ -497,7 +497,15 @@ def main():
             st.success("부서 설정이 저장되었습니다.")
             st.rerun()
 
-    # ---------- 상단 네비게이션 버튼 ----------
+    # ---------- 상단: 펼치기 아이콘(>) + 링크 버튼들 ----------
+
+    # 1) 좌측 상단에 '>' 아이콘 버튼 (사이드바 펼치기 전용)
+    top_cols = st.columns([0.3, 7])
+    with top_cols[0]:
+        if st.button(">", key="open_sidebar_icon"):
+            toggle_sidebar("show")
+
+    # 2) 병원 일정 / 진료시간표 / 네이버 블로그 링크 버튼
     nav_cols = st.columns(3)
     with nav_cols[0]:
         st.link_button(
@@ -517,16 +525,6 @@ def main():
             "https://blog.naver.com/hisped2017",
             type="secondary",
         )
-
-    # 사이드바 접기/펼치기 버튼 (< , >)
-    st.markdown("<div style='height:0.3rem'></div>", unsafe_allow_html=True)
-    ctrl_cols = st.columns([1, 1, 6])
-    with ctrl_cols[0]:
-        if st.button("◀ 메뉴 접기", key="hide_sidebar_btn"):
-            toggle_sidebar("hide")
-    with ctrl_cols[1]:
-        if st.button("▶ 메뉴 펼치기", key="show_sidebar_btn"):
-            toggle_sidebar("show")
 
     st.markdown("<div style='height:0.6rem'></div>", unsafe_allow_html=True)
 
