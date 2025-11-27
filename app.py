@@ -142,6 +142,33 @@ def escape_html(text: str) -> str:
     return text
 
 
+def toggle_sidebar(to_state: str):
+    """
+    to_state: 'hide' 또는 'show'
+    Streamlit 내부 사이드바 토글 버튼을 JS로 클릭해서
+    사이드바를 접거나(pinch), 펼치는(expand) 역할.
+    """
+    to_state = "hide" if to_state == "hide" else "show"
+    components.html(
+        f"""
+        <script>
+        const doc = window.parent.document;
+        const btn = doc.querySelector('[data-testid="collapsedControl"]');
+        if (btn) {{
+            const expanded = btn.getAttribute('aria-expanded') === 'true';
+            if ("{to_state}" === "hide" && expanded) {{
+                btn.click();   // 펼쳐져 있으면 -> 접기
+            }} else if ("{to_state}" === "show" && !expanded) {{
+                btn.click();   // 접혀 있으면 -> 펼치기
+            }}
+        }}
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
+
+
 def main():
     app_title = "HISMEDI † Weekly report"
     try:
@@ -185,11 +212,17 @@ def main():
         [data-testid="stSidebar"] [data-testid="column"] .stButton {
             margin-bottom: 0.07rem;
         }
+
+        /* 메인 컨테이너: 좌측 여백 줄이고, 너무 넓어지지 않게 최대 폭 지정 */
         [data-testid="block-container"] {
             padding-top: 0;
             padding-left: 1.3rem;
             padding-right: 1.3rem;
+            max-width: 1400px;
+            margin-left: 0;
+            margin-right: auto;
         }
+
         h4 {
             margin-top: 0.15rem;
             margin-bottom: 0.35rem;
@@ -230,10 +263,13 @@ def main():
                 min-width: 260px;
                 max-width: 260px;
             }
-            /* 본문 좌우 여백 조금 줄이기 */
+            /* 본문 좌우 여백 & 폭 조정 */
             [data-testid="block-container"] {
                 padding-left: 0.6rem;
                 padding-right: 0.6rem;
+                max-width: 100%;
+                margin-left: 0;
+                margin-right: 0;
             }
             /* 상단 링크 버튼은 가로 전체를 쓰도록 */
             .stLinkButton > button {
@@ -482,6 +518,16 @@ def main():
             type="secondary",
         )
 
+    # 사이드바 접기/펼치기 버튼 (< , >)
+    st.markdown("<div style='height:0.3rem'></div>", unsafe_allow_html=True)
+    ctrl_cols = st.columns([1, 1, 6])
+    with ctrl_cols[0]:
+        if st.button("◀ 메뉴 접기", key="hide_sidebar_btn"):
+            toggle_sidebar("hide")
+    with ctrl_cols[1]:
+        if st.button("▶ 메뉴 펼치기", key="show_sidebar_btn"):
+            toggle_sidebar("show")
+
     st.markdown("<div style='height:0.6rem'></div>", unsafe_allow_html=True)
 
     # ---------- 메인 콘텐츠 ----------
@@ -498,6 +544,8 @@ def main():
 
     edited_values = {}      # 전체 부서 모드
     edited_single = {}      # 단일 부서 모드: {week_str: text}
+
+    dept_filter = st.session_state.get("selected_dept", "전체 부서")
 
     if dept_filter == "전체 부서":
         st.markdown(f"#### {selected_week}")
