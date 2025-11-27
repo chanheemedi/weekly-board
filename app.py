@@ -10,6 +10,7 @@ import streamlit.components.v1 as components
 
 WEEK_COL = "WEEK"
 
+
 @st.cache_resource(show_spinner=False)
 def get_worksheet():
     scopes = [
@@ -24,6 +25,7 @@ def get_worksheet():
     sh = client.open_by_key(st.secrets["gsheet"]["spreadsheet_id"])
     ws = sh.worksheet(st.secrets["gsheet"]["worksheet_name"])
     return ws
+
 
 @st.cache_data(show_spinner=False)
 def load_data():
@@ -55,12 +57,15 @@ def load_data():
 
     df = pd.DataFrame(normalized_rows, columns=header)
 
+    # 완전히 빈 Unnamed_ 컬럼 제거
     for c in [c for c in df.columns if c.startswith("Unnamed_")]:
         if df[c].replace("", pd.NA).isna().all():
             df.drop(columns=[c], inplace=True)
 
+    # 시트 실제 row 번호 (헤더가 1행이므로 +2)
     df["_sheet_row"] = df.index + 2
 
+    # WEEK 컬럼 자동 탐지
     pattern = re.compile(r"\d{4}\.\d{2}\.\d{2}\s*~\s*\d{4}\.\d{2}\.\d{2}")
     week_col_name = None
     for col in df.columns:
@@ -87,8 +92,10 @@ def load_data():
 
     return df
 
+
 def get_dept_columns(df: pd.DataFrame):
     return [c for c in df.columns if c not in [WEEK_COL] and not c.startswith("_")]
+
 
 def parse_week_range(week_str: str):
     try:
@@ -99,12 +106,14 @@ def parse_week_range(week_str: str):
     except Exception:
         return None, None
 
+
 def get_col_index(ws, col_name: str):
     headers = ws.row_values(1)
     try:
         return headers.index(col_name) + 1
     except ValueError:
         return None
+
 
 def save_cell(sheet_row: int, col_name: str, key: str):
     """텍스트 입력이 끝난 시점에 해당 셀을 바로 구글 시트에 반영하는 자동 저장 콜백."""
@@ -115,13 +124,15 @@ def save_cell(sheet_row: int, col_name: str, key: str):
         return
     value = st.session_state.get(key, "")
     ws.update_cell(sheet_row, col_idx, value)
-    # ✅ 여기 추가: 캐시를 지워서 다음 실행 때 항상 최신 데이터 사용
+    # 캐시 지우기
     load_data.clear()
-    # 과도한 알림을 막기 위해 토스트가 지원되면 가볍게만 표시
+    # 토스트 지원 안 될 수 있으니 예외 처리
     try:
         st.toast("자동 저장 완료", icon="💾")
     except Exception:
         st.success("자동 저장 완료")
+
+
 def escape_html(text: str) -> str:
     if text is None:
         return ""
@@ -129,6 +140,7 @@ def escape_html(text: str) -> str:
     text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     text = text.replace("\n", "<br>")
     return text
+
 
 def main():
     app_title = "HISMEDI † Weekly report"
@@ -139,7 +151,7 @@ def main():
 
     st.set_page_config(page_title=app_title, layout="wide")
 
-    # Global layout & spacing styles
+    # ---------- 전역 스타일 ----------
     st.markdown(
         """
         <style>
@@ -159,7 +171,7 @@ def main():
             padding-top: 0.18rem;
             padding-bottom: 0.18rem;
         }
-        /* 부서 선택 영역(컬럼 안 버튼)은 글자 더 작게, 박스는 약간 높게, 버튼 간 간격 더 좁게 */
+        /* 부서 선택 영역 버튼 */
         [data-testid="stSidebar"] [data-testid="column"] button {
             font-size: 0.7rem;
             padding-top: 0.30rem;
@@ -180,15 +192,30 @@ def main():
         textarea {
             line-height: 1.3;
         }
-        /* 기간 선택 드롭다운 텍스트를 더 굵게, 배경색 강하게 */
+        /* 기간 선택 드롭다운 튜닝 */
         [data-testid="stSidebar"] div[data-baseweb="select"] > div {
-            background-color: #bfdbfe;  /* 더 진한 파란톤 */
+            background-color: #bfdbfe;
             border-radius: 4px;
             border: 1px solid #1d4ed8;
         }
         [data-testid="stSidebar"] div[data-baseweb="select"] span {
             font-size: 0.9rem;
             font-weight: 800;
+        }
+        /* 상단 링크 버튼(병원일정/진료시간표/블로그) 스타일 */
+        .stLinkButton > button {
+            border-radius: 999px;
+            background-color: #f9fafb;
+            border: 1px solid #e5e7eb;
+            color: #111827;
+            font-size: 0.9rem;
+            font-weight: 500;
+            padding: 0.45rem 1.6rem;
+            box-shadow: 0 1px 2px rgba(15,23,42,0.04);
+        }
+        .stLinkButton > button:hover {
+            background-color: #e5e7eb;
+            border-color: #d1d5db;
         }
         </style>
         """,
@@ -211,7 +238,7 @@ def main():
     if "selected_dept" not in st.session_state:
         st.session_state["selected_dept"] = "전체 부서"
 
-    # ---------------------- Sidebar ----------------------
+    # ---------- 사이드바 ----------
     with st.sidebar:
         st.markdown(
             f"""
@@ -234,13 +261,14 @@ def main():
             "<hr style='margin:0.25rem 0; border:0; border-top:1px solid #e0e0e0;' />",
             unsafe_allow_html=True,
         )
-        # 인쇄 / 동기화 - 한 줄에 두 버튼
+
+        # 인쇄 / 동기화
         btn_cols = st.columns(2)
         with btn_cols[0]:
-            if st.button("🖨 인쇄 미리보기", use_container_width=True):
+            if st.button("🖨 인쇄 미리보기", width="stretch"):
                 st.session_state["print_requested"] = True
         with btn_cols[1]:
-            if st.button("🔄 데이터 동기화", use_container_width=True):
+            if st.button("🔄 데이터 동기화", width="stretch"):
                 load_data.clear()
                 st.rerun()
 
@@ -271,7 +299,7 @@ def main():
             unsafe_allow_html=True,
         )
         unit_choice = st.radio(
-            "새 기간 길이 선택",   # ▶ 숨겨진 라벨 (경고 제거용)
+            "새 기간 길이 선택",
             ["직전 기간과 동일", "1주", "2주"],
             index=0,
             horizontal=True,
@@ -294,7 +322,7 @@ def main():
         new_week_str = f"{new_start:%Y.%m.%d}~{new_end:%Y.%m.%d}"
         st.caption(f"새 기간 미리보기: **{new_week_str}**")
 
-        if st.button("새 기간 추가('기간선택'에서 없는 경우)", use_container_width=True):
+        if st.button("새 기간 추가('기간선택'에서 없는 경우)", width="stretch"):
             headers = ws.row_values(1)
             new_row = ["" for _ in headers]
             if WEEK_COL in headers:
@@ -331,11 +359,9 @@ def main():
                 if st.button(
                     dept,
                     key=f"dept_btn_{dept}",
-                    use_container_width=True,
+                    width="stretch",
                     type=button_type,
                 ):
-                    # 클릭된 부서를 상태에 반영하고 즉시 rerun해서
-                    # 버튼 색과 메인 내용이 바로 일치하게 만든다.
                     st.session_state["selected_dept"] = dept
                     st.rerun()
 
@@ -346,7 +372,8 @@ def main():
             "<hr style='margin:0.35rem 0; border:0; border-top:1px solid #e0e0e0;' />",
             unsafe_allow_html=True,
         )
-        # 부서 관리는 제목 그대로 유지
+
+        # 부서 관리
         st.markdown(
             "<div style='font-weight:600; margin:0.05rem 0 0.2rem;'>부서 관리</div>",
             unsafe_allow_html=True,
@@ -357,11 +384,11 @@ def main():
         edited_dept_df = st.data_editor(
             dept_df,
             num_rows="dynamic",
-            use_container_width=True,
+            width="stretch",
             key="dept_editor",
         )
 
-        if st.button("부서 변경 사항 저장", use_container_width=True):
+        if st.button("부서 변경 사항 저장", width="stretch"):
             original = dept_cols
             new_list = [
                 str(x).strip()
@@ -410,8 +437,30 @@ def main():
             st.success("부서 설정이 저장되었습니다.")
             st.rerun()
 
-    # ---------------------- Main content ----------------------
-    # 선택한 기간 row
+    # ---------- 상단 네비게이션 버튼 ----------
+    nav_cols = st.columns(3)
+    with nav_cols[0]:
+        st.link_button(
+            "병원 일정 보기",
+            "https://calendar.google.com/calendar/u/0/r?pli=1",
+            type="secondary",
+        )
+    with nav_cols[1]:
+        st.link_button(
+            "의료진 진료시간표",
+            "https://docs.google.com/spreadsheets/d/1NwQadQSzlmWVmPN8U-AHw7ZmWbnKO0nzmc0M25XDwfo/edit?usp=sharing",
+            type="secondary",
+        )
+    with nav_cols[2]:
+        st.link_button(
+            "네이버 블로그",
+            "https://blog.naver.com/hisped2017",
+            type="secondary",
+        )
+
+    st.markdown("<div style='height:0.6rem'></div>", unsafe_allow_html=True)
+
+    # ---------- 메인 콘텐츠 ----------
     row_df = df[df[WEEK_COL] == selected_week]
     if row_df.empty:
         st.error("선택한 기간의 데이터를 찾을 수 없습니다.")
@@ -424,11 +473,10 @@ def main():
     selected_idx = selected_indices[0] if selected_indices else 0
     prev_row = df.iloc[selected_idx + 1] if selected_idx + 1 < len(df) else None
 
-    edited_values = {}      # 전체 부서 모드에서 사용
-    edited_single = {}      # 단일 부서 모드에서 사용: {week_str: text}
+    edited_values = {}      # 전체 부서 모드
+    edited_single = {}      # 단일 부서 모드: {week_str: text}
 
     if dept_filter == "전체 부서":
-        # 상단 제목 - "업무 내용" 문구 제거
         st.markdown(f"#### {selected_week}")
 
         cols_main = st.columns(2)
@@ -441,9 +489,10 @@ def main():
             with col:
                 with st.container(border=True):
                     st.markdown(f"**{dept}**")
-                    ta_key = f"ta_{dept}"
+                    # 🔑 주차까지 포함해서 key 생성 → 기간 변경 시 내용 섞임 방지
+                    ta_key = f"ta_{dept}_{selected_week}"
                     edited = st.text_area(
-                        label=f"{dept} 업무 내용",   # ▶ 숨겨진 라벨
+                        label=f"{dept} 업무 내용",
                         value=current_text,
                         height=320,
                         key=ta_key,
@@ -468,7 +517,7 @@ def main():
                 st.markdown(f"**{selected_week} · {dept}**")
                 ta_key_cur = f"ta_{dept}_{selected_week}"
                 edited_cur = st.text_area(
-                    label=f"{selected_week} · {dept} 업무 내용",  # ▶ 숨겨진 라벨
+                    label=f"{selected_week} · {dept} 업무 내용",
                     value=cur_text,
                     height=450,
                     key=ta_key_cur,
@@ -478,7 +527,7 @@ def main():
                 )
                 edited_single[selected_week] = edited_cur
 
-        # 직전 기간이 존재하면 오른쪽에 배치
+        # 직전 기간
         if prev_row is not None:
             prev_week = str(prev_row[WEEK_COL])
             prev_text = ""
@@ -490,7 +539,7 @@ def main():
                     st.markdown(f"**{prev_week} · {dept}**")
                     ta_key_prev = f"ta_{dept}_{prev_week}"
                     edited_prev = st.text_area(
-                        label=f"{prev_week} · {dept} 업무 내용",  # ▶ 숨겨진 라벨
+                        label=f"{prev_week} · {dept} 업무 내용",
                         value=prev_text,
                         height=450,
                         key=ta_key_prev,
@@ -528,7 +577,7 @@ def main():
             st.success("구글 시트에 저장되었습니다.")
             st.rerun()
 
-    # ---------------------- Print preview (separate HTML) ----------------------
+    # ---------- 인쇄 미리보기 ----------
     if st.session_state.get("print_requested"):
         title_html = escape_html(app_title)
         week_html = escape_html(selected_week)
@@ -536,7 +585,6 @@ def main():
         sections_html = ""
 
         if dept_filter == "전체 부서":
-            # 전체 부서: 화면처럼 박스형 카드 레이아웃
             for dept in dept_cols:
                 content = ""
                 if dept in row.index and pd.notna(row[dept]):
@@ -549,7 +597,6 @@ def main():
                 </div>
                 """
         else:
-            # 단일 부서: 선택한 부서 내용만 카드로 표시
             dept = dept_filter
             content = ""
             if dept in row.index and pd.notna(row[dept]):
@@ -593,7 +640,7 @@ def main():
               }}
               .dept-card {{
                 box-sizing: border-box;
-                flex: 1 1 calc(50% - 8px); /* 두 칼럼 카드 레이아웃 */
+                flex: 1 1 calc(50% - 8px);
                 border: 1px solid #d1d5db;
                 border-radius: 6px;
                 padding: 6px 8px;
@@ -630,6 +677,7 @@ def main():
         """
         components.html(html, height=0, width=0)
         st.session_state["print_requested"] = False
+
 
 if __name__ == "__main__":
     main()
