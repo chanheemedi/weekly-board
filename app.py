@@ -1,751 +1,527 @@
-import re
-from datetime import datetime, timedelta
+import streamlit as st
+import pandas as pd
+from datetime import datetime, date
+import os
+import json
+import html
+import base64
 
 import gspread
-from gspread.cell import Cell
-import pandas as pd
-import streamlit as st
 from google.oauth2.service_account import Credentials
-import streamlit.components.v1 as components
+from gspread.exceptions import WorksheetNotFound
+
+# ---------------------------
+# 0. 페이지 기본 설정 + 전체 레이아웃 폭 조정
+# ---------------------------
+st.set_page_config(
+    page_title="부서별 주간 업무 & 회의 보드",
+    layout="wide"
+)
+
+# 레이아웃 / 폰트 스타일
+st.markdown(
+    """
+    <style>
+    .block-container {
+        max-width: 1400px;
+        padding-top: 1.5rem;
+        padding-bottom: 1rem;
+    }
+    .small-muted {
+        font-size: 0.9rem;
+        color: #6c757d;
+    }
+    .dept-content {
+        font-size: 0.95rem;
+        line-height: 1.5;
+        white-space: normal;
+    }
+    .dept-content-large {
+        font-size: 1.05rem;
+        line-height: 1.6;
+        white-space: normal;
+    }
+    .info-card {
+        border: 1px solid #d0d7de;
+        border-radius: 8px;
+        padding: 0.7rem 1rem;
+        background-color: #f4f6fb;
+    }
+    .info-card-title {
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: #57606a;
+        margin-bottom: 0.25rem;
+    }
+    .info-card-value {
+        font-size: 0.98rem;
+        font-weight: 500;
+    }
+    /* 큰 내용 박스 (파스텔 하늘색) */
+    .content-card {
+        border-radius: 10px;
+        padding: 1.2rem 1.4rem;
+        background-color: #e9f2ff;       /* 파스텔 하늘색 */
+        border: 1px solid #c5d8ff;
+        margin-top: 1.0rem;
+    }
+    /* 안쪽 각 부서별 카드 (흰색) */
+    .dept-inner-card {
+        background-color: #ffffff;
+        border-radius: 8px;
+        padding: 0.8rem 1rem;
+        margin-bottom: 1rem;
+        border: 1px solid #d0d7de;
+    }
+    /* 전체 부서일 때 3열~2열 자동 레이아웃 */
+    .dept-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        gap: 1rem;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# ---------------------------
+# 1. 공통 설정
+# ---------------------------
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1khJ4XMVEb9N3oQbwVqnz6loVM-yvMkRik-6NMQH6IKA/edit?gid=1896609182#gid=1896609182"
+
+SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
 WEEK_COL = "WEEK"
+RAW_SHEET_NAME = "raw_log"
 
 
-@st.cache_resource(show_spinner=False)
-def get_worksheet():
-    scopes = [
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive",
-    ]
-    creds = Credentials.from_service_account_info(
-        st.secrets["gcp_service_account"],
-        scopes=scopes,
+def get_credentials():
+    if "gcp_service_account" in st.secrets:
+        info = st.secrets["gcp_service_account"]
+        if isinstance(info, str):
+            service_account_info = json.loads(info)
+        else:
+            service_account_info = dict(info)
+        return Credentials.from_service_account_info(
+            service_account_info, scopes=SCOPES
+        )
+
+    service_account_file = os.path.join(BASE_DIR, "google_service_account.json")
+    if os.path.exists(service_account_file):
+        return Credentials.from_service_account_file(
+            service_account_file, scopes=SCOPES
+        )
+
+    raise FileNotFoundError(
+        "No credentials found. Set 'gcp_service_account' in Streamlit secrets "
+        "or put google_service_account.json next to app.py."
     )
-    client = gspread.authorize(creds)
-    sh = client.open_by_key(st.secrets["gsheet"]["spreadsheet_id"])
-    ws = sh.worksheet(st.secrets["gsheet"]["worksheet_name"])
-    return ws
 
 
-@st.cache_data(show_spinner=False)
-def load_data():
-    ws = get_worksheet()
-    values = ws.get_all_values()
+# ---------------------------
+# 2. Google Sheets 연결
+# ---------------------------
 
-    if not values or len(values) < 2:
-        return pd.DataFrame()
+try:
+    credentials = get_credentials()
+    gc = gspread.authorize(credentials)
+    sh = gc.open_by_url(SPREADSHEET_URL)
+except Exception as e:
+    st.error("❌ Google Sheet 연결 중 오류가 발생했습니다.")
+    st.write("1) 시트 URL, 2) 서비스 계정 권한을 확인하세요.")
+    st.exception(e)
+    st.stop()
 
-    raw_header = values[0]
-    rows = values[1:]
+# '주간업무' 시트
+try:
+    worksheet = sh.worksheet("주간업무")
+except Exception as e:
+    st.error("❌ '주간업무' 시트를 찾지 못했습니다.")
+    st.write("스프레드시트 안 탭 이름이 정확히 '주간업무'인지 확인하세요.")
+    st.exception(e)
+    st.stop()
 
-    header = []
-    for i, h in enumerate(raw_header):
-        h = str(h).strip()
-        if not h:
-            h = f"Unnamed_{i+1}"
-        header.append(h)
-
-    n_cols = len(header)
-
-    normalized_rows = []
-    for r in rows:
-        if len(r) < n_cols:
-            r = r + [""] * (n_cols - len(r))
-        elif len(r) > n_cols:
-            r = r[:n_cols]
-        normalized_rows.append(r)
-
-    df = pd.DataFrame(normalized_rows, columns=header)
-
-    # 완전히 빈 Unnamed_ 컬럼 제거
-    for c in [c for c in df.columns if c.startswith("Unnamed_")]:
-        if df[c].replace("", pd.NA).isna().all():
-            df.drop(columns=[c], inplace=True)
-
-    # 시트 실제 row 번호 (헤더가 1행이므로 +2)
-    df["_sheet_row"] = df.index + 2
-
-    # WEEK 컬럼 자동 탐지
-    pattern = re.compile(r"\d{4}\.\d{2}\.\d{2}\s*~\s*\d{4}\.\d{2}\.\d{2}")
-    week_col_name = None
-    for col in df.columns:
-        s = df[col].astype(str)
-        if s.apply(lambda x: bool(pattern.fullmatch(x.strip()))).any():
-            week_col_name = col
-            break
-
-    if week_col_name is None:
-        return df
-
-    if WEEK_COL not in df.columns:
-        df[WEEK_COL] = df[week_col_name]
-
-    def parse_start_date(week_str: str) -> datetime:
-        try:
-            start = str(week_str).split("~")[0].strip()
-            return datetime.strptime(start, "%Y.%m.%d")
-        except Exception:
-            return datetime.min
-
-    df["_start_date"] = df[WEEK_COL].astype(str).apply(parse_start_date)
-    df = df.sort_values("_start_date", ascending=False).reset_index(drop=True)
-
-    return df
-
-
-def get_dept_columns(df: pd.DataFrame):
-    return [c for c in df.columns if c not in [WEEK_COL] and not c.startswith("_")]
-
-
-def parse_week_range(week_str: str):
+# 'raw_log' 시트 (없으면 생성)
+try:
+    raw_ws = sh.worksheet(RAW_SHEET_NAME)
+except WorksheetNotFound:
     try:
-        s, e = week_str.split("~")
-        start = datetime.strptime(s.strip(), "%Y.%m.%d")
-        end = datetime.strptime(e.strip(), "%Y.%m.%d")
-        return start, end
-    except Exception:
-        return None, None
+        raw_ws = sh.add_worksheet(title=RAW_SHEET_NAME, rows=1000, cols=10)
+        header = ["timestamp", "meeting_date", "week_range", "department", "content"]
+        raw_ws.append_row(header)
+    except Exception as e:
+        st.error("❌ 'raw_log' 시트를 생성하는 중 오류가 발생했습니다.")
+        st.exception(e)
+        st.stop()
+except Exception as e:
+    st.error("❌ 'raw_log' 시트 접근 중 오류가 발생했습니다.")
+    st.exception(e)
+    st.stop()
+
+# ---------------------------
+# 3. '주간업무' 시트 → DataFrame
+# ---------------------------
+
+raw_values = worksheet.get_all_values()
+raw_df = pd.DataFrame(raw_values)
+
+dept_row = raw_df.iloc[0]
+data_df = raw_df.iloc[1:].copy()
+
+new_columns = []
+for idx, cell in enumerate(dept_row):
+    header_value = str(cell).strip()
+    if header_value.upper() == "WEEK":
+        new_columns.append(WEEK_COL)
+    elif header_value != "":
+        new_columns.append(header_value)
+    else:
+        new_columns.append(f"col_{idx}")
+
+data_df.columns = new_columns
+data_df = data_df[data_df[WEEK_COL].astype(str).str.strip() != ""].copy()
+base_df = data_df.reset_index(drop=True)
+
+# ---------------------------
+# 4. 세션 상태
+# ---------------------------
+if "df" not in st.session_state:
+    st.session_state.df = base_df.copy()
+if "departments" not in st.session_state:
+    st.session_state.departments = [c for c in base_df.columns if c != WEEK_COL]
+if "recent_entries" not in st.session_state:
+    st.session_state.recent_entries = []
+
+df = st.session_state.df
+DEPARTMENTS = st.session_state.departments
 
 
-def get_col_index(ws, col_name: str):
-    headers = ws.row_values(1)
-    try:
-        return headers.index(col_name) + 1
-    except ValueError:
-        return None
+# ---------------------------
+# 5. 날짜/라벨 유틸
+# ---------------------------
+def parse_week_range(week_label: str):
+    week_label = str(week_label).replace(" ", "")
+    start_str, end_str = week_label.split("~")
+    start = datetime.strptime(start_str, "%Y.%m.%d").date()
+    end = datetime.strptime(end_str, "%Y.%m.%d").date()
+    return start, end
 
 
-def save_cell(sheet_row: int, col_name: str, key: str):
-    """텍스트 입력이 끝난 시점에 해당 셀을 바로 구글 시트에 반영하는 자동 저장 콜백."""
-    ws = get_worksheet()
-    col_idx = get_col_index(ws, col_name)
-    if col_idx is None:
-        st.warning(f"'{col_name}' 열을 찾을 수 없어 자동 저장에 실패했습니다.")
-        return
-    value = st.session_state.get(key, "")
-    ws.update_cell(sheet_row, col_idx, value)
-    # 캐시 지우기
-    load_data.clear()
-    # 토스트 지원 안 될 수 있으니 예외 처리
-    try:
-        st.toast("자동 저장 완료", icon="💾")
-    except Exception:
-        st.success("자동 저장 완료")
+def make_period_label(week_label: str) -> str:
+    start, end = parse_week_range(week_label)
+    date_part = f"{start.year}-{start.month:02d}-{start.day:02d} ~ {end.month:02d}-{end.day:02d}"
+    days = (end - start).days + 1
+    weeks = max(1, round(days / 7))
+    cycle = "weekly" if weeks == 1 else f"{weeks}-weekly"
+    return f"{date_part} ({cycle})"
 
 
-def escape_html(text: str) -> str:
+def make_period_compact_label(week_label: str) -> str:
+    """요약 박스용: 2025.11.10 - 2025.11.23"""
+    start, end = parse_week_range(week_label)
+    return f"{start.year}.{start.month:02d}.{start.day:02d} - {end.year}.{end.month:02d}.{end.day:02d}"
+
+
+def find_week_for_date(target_date: date, week_series) -> str | None:
+    for week_label in week_series:
+        start, end = parse_week_range(week_label)
+        if start <= target_date <= end:
+            return week_label
+    return None
+
+
+# ---------------------------
+# 6. 렌더링 유틸 (폰트 통일)
+# ---------------------------
+def content_to_html(text: str, large: bool = False) -> str:
+    """마크다운/HTML 무시하고 줄바꿈만 유지한 HTML 문자열 반환."""
     if text is None:
-        return ""
-    text = str(text)
-    text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-    text = text.replace("\n", "<br>")
-    return text
+        text = ""
+    escaped = html.escape(str(text))
+    escaped = escaped.replace("\n", "<br>")
+    css_class = "dept-content-large" if large else "dept-content"
+    return f"<div class='{css_class}'>{escaped}</div>"
 
 
-def toggle_sidebar(to_state: str):
-    """
-    to_state: 'hide' 또는 'show'
-    Streamlit 내부 사이드바 토글 버튼을 JS로 클릭해서
-    사이드바를 접거나 펼치는 역할.
-    """
-    to_state = "hide" if to_state == "hide" else "show"
-    components.html(
-        f"""
-        <script>
-        const doc = window.parent.document;
-        const btn = doc.querySelector('[data-testid="collapsedControl"]');
-        if (btn) {{
-            const expanded = btn.getAttribute('aria-expanded') === 'true';
-            if ("{to_state}" === "hide" && expanded) {{
-                btn.click();   // 펼쳐져 있으면 -> 접기
-            }} else if ("{to_state}" === "show" && !expanded) {{
-                btn.click();   // 접혀 있으면 -> 펼치기
-            }}
-        }}
-        </script>
-        """,
-        height=0,
-        width=0,
+def dept_title_html(dept: str) -> str:
+    """부서 이름만 굵게, '공지 · 결정사항' 은 파란색 굵게."""
+    name = dept.strip()
+    esc_name = html.escape(name)
+    if ("공지" in name) and ("결정사항" in name):
+        return f"<div style='color:#1f6feb;font-weight:700;margin-bottom:0.4rem;'>{esc_name}</div>"
+    else:
+        return f"<div style='font-weight:700;margin-bottom:0.4rem;'>{esc_name}</div>"
+
+
+# ---------------------------
+# 7. Sidebar - 모드 선택
+# ---------------------------
+st.sidebar.title("메뉴")
+
+mode = st.sidebar.radio(
+    "모드 선택",
+    ["회의 내용 입력", "회의 내용 조회"],
+)
+
+# ---------------------------
+# 8. 회의 내용 입력 모드
+# ---------------------------
+if mode == "회의 내용 입력":
+    st.title("회의 내용 입력")
+
+    st.markdown("#### 1) 기본 정보 선택")
+
+    meeting_date = st.date_input(
+        "회의 날짜",
+        value=date.today()
     )
 
+    if DEPARTMENTS:
+        dept_for_input = st.selectbox(
+            "부서 선택",
+            options=DEPARTMENTS,
+            index=0
+        )
+    else:
+        dept_for_input = None
+        st.warning("등록된 부서가 없습니다. 먼저 왼쪽 하단 '부서 관리'에서 부서를 추가하세요.")
 
-def main():
-    app_title = "HISMEDI † Weekly report"
-    try:
-        app_title = st.secrets["app"].get("TITLE", app_title)
-    except Exception:
-        pass
+    st.markdown("#### 2) 회의 내용 입력")
 
-    # 모바일에서 기본으로 사이드바 접힌 상태
-    st.set_page_config(
-        page_title=app_title,
-        layout="wide",
-        initial_sidebar_state="collapsed",
+    content = st.text_area(
+        "회의 내용",
+        placeholder="회의 안건, 주요 논의사항, 결정사항 등을 자유롭게 입력하세요.",
+        height=200
     )
 
-    # ---------- 전역 스타일 ----------
-    st.markdown(
-        """
-        <style>
-        [data-testid="stSidebar"] {
-            min-width: 440px;
-            max-width: 460px;
-            padding-top: 0;
-        }
-        [data-testid="stSidebar"] * {
-            line-height: 1.03;
-        }
-        [data-testid="stSidebar"] .stButton {
-            margin-bottom: 0.2rem;
-        }
-        [data-testid="stSidebar"] button {
-            font-size: 0.8rem;
-            padding-top: 0.18rem;
-            padding-bottom: 0.18rem;
-        }
-        /* 부서 선택 영역 버튼 */
-        [data-testid="stSidebar"] [data-testid="column"] button {
-            font-size: 0.7rem;
-            padding-top: 0.30rem;
-            padding-bottom: 0.30rem;
-        }
-        [data-testid="stSidebar"] [data-testid="column"] .stButton {
-            margin-bottom: 0.07rem;
-        }
+    week_label_for_date = find_week_for_date(meeting_date, base_df[WEEK_COL].tolist())
 
-        /* 메인 컨테이너: 좌측 여백 줄이고, 너무 넓어지지 않게 최대 폭 지정 */
-        [data-testid="block-container"] {
-            padding-top: 0;
-            padding-left: 1.3rem;
-            padding-right: 1.3rem;
-            max-width: 1400px;
-            margin-left: 0;
-            margin-right: auto;
-        }
+    if week_label_for_date:
+        st.info(
+            f"이 날짜는 다음 주차에 포함됩니다:\n\n**{make_period_label(week_label_for_date)}**"
+        )
+    else:
+        st.warning(
+            "⚠ 이 날짜에 해당하는 WEEK 구간을 '주간업무' 시트에서 찾지 못했습니다.\n"
+            "→ 나중에 WEEK 정의를 추가로 설정해야 할 수 있습니다."
+        )
 
-        h4 {
-            margin-top: 0.15rem;
-            margin-bottom: 0.35rem;
-        }
-        textarea {
-            line-height: 1.3;
-        }
-        /* 기간 선택 드롭다운 튜닝 */
-        [data-testid="stSidebar"] div[data-baseweb="select"] > div {
-            background-color: #bfdbfe;
-            border-radius: 4px;
-            border: 1px solid #1d4ed8;
-        }
-        [data-testid="stSidebar"] div[data-baseweb="select"] span {
-            font-size: 0.9rem;
-            font-weight: 800;
-        }
-        /* 상단 링크 버튼(병원일정/진료시간표/블로그) 스타일 */
-        .stLinkButton > button {
-            border-radius: 999px;
-            background-color: #f9fafb;
-            border: 1px solid #e5e7eb;
-            color: #111827;
-            font-size: 0.9rem;
-            font-weight: 500;
-            padding: 0.45rem 1.6rem;
-            box-shadow: 0 1px 2px rgba(15,23,42,0.04);
-        }
-        .stLinkButton > button:hover {
-            background-color: #e5e7eb;
-            border-color: #d1d5db;
-        }
+    st.markdown("#### 3) 동기화 (Google Sheet에 저장)")
 
-        /* 📱 모바일 화면 대응 (폭이 900px 이하인 경우) */
-        @media (max-width: 900px) {
-            /* 사이드바 폭 줄이기 */
-            [data-testid="stSidebar"] {
-                min-width: 260px;
-                max-width: 260px;
-            }
-            /* 본문 좌우 여백 & 폭 조정 */
-            [data-testid="block-container"] {
-                padding-left: 0.6rem;
-                padding-right: 0.6rem;
-                max-width: 100%;
-                margin-left: 0;
-                margin-right: 0;
-            }
-            /* 상단 링크 버튼은 가로 전체를 쓰도록 */
-            .stLinkButton > button {
-                width: 100%;
-                margin-bottom: 0.25rem;
-            }
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
+    if st.button("💾 Google Sheet로 동기화 (저장)", type="primary"):
+        if not content.strip():
+            st.warning("회의 내용을 입력하세요.")
+        elif not dept_for_input:
+            st.warning("부서를 선택하거나 추가하세요.")
+        elif week_label_for_date is None:
+            st.warning("이 날짜에 해당하는 WEEK를 찾지 못했습니다. '주간업무' 시트를 먼저 정리해야 합니다.")
+        else:
+            try:
+                timestamp = datetime.now().isoformat(timespec="seconds")
+                record_row = [
+                    timestamp,
+                    meeting_date.isoformat(),
+                    week_label_for_date,
+                    dept_for_input,
+                    content.strip(),
+                ]
+                raw_ws.append_row(record_row)
+
+                st.session_state.recent_entries.append(
+                    {
+                        "timestamp": timestamp,
+                        "meeting_date": meeting_date.isoformat(),
+                        "week_range": week_label_for_date,
+                        "department": dept_for_input,
+                        "content": content.strip(),
+                    }
+                )
+
+                st.success("✅ Google Sheet에 저장되었습니다.")
+            except Exception as e:
+                st.error("❌ Google Sheet에 저장하는 중 오류가 발생했습니다.")
+                st.exception(e)
+
+    if st.session_state.recent_entries:
+        st.markdown("---")
+        st.markdown("### 이 세션에서 저장한 회의 기록들")
+        for i, rec in enumerate(reversed(st.session_state.recent_entries), start=1):
+            st.markdown(f"**#{i} | {rec['meeting_date']} | {rec['department']}**")
+            st.markdown(content_to_html(rec["content"], large=False), unsafe_allow_html=True)
+            st.caption(
+                f"주차: {rec['week_range']} / 저장 시각: {rec['timestamp']}"
+            )
+            st.markdown("---")
+
+
+# ---------------------------
+# 9. 회의 내용 조회 모드
+# ---------------------------
+elif mode == "회의 내용 조회":
+    st.title("주간 회의 내용 조회")
+
+    # 사이드바 상단 필터
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("조회 필터")
+
+    period_options = df[WEEK_COL].tolist()
+    selected_period = st.sidebar.selectbox(
+        "회의 기간(주차) 선택",
+        options=period_options,
+        format_func=make_period_label,
     )
 
-    df = load_data()
-    if df.empty:
-        st.warning("구글시트에 데이터가 없습니다.")
-        return
+    selected_department = st.sidebar.selectbox(
+        "부서 선택",
+        options=["전체"] + DEPARTMENTS
+    )
 
-    if WEEK_COL not in df.columns:
-        st.error("기간(WEEK) 컬럼을 찾지 못했습니다. 시트의 기간 형식을 확인해 주세요.")
-        st.write("현재 열 목록:", list(df.columns))
-        return
+    # 요약 박스 두 개 (선택된 기간 / 선택된 부서)
+    period_label_compact = make_period_compact_label(selected_period)
+    dept_label = "전체 부서" if selected_department == "전체" else selected_department
 
-    ws = get_worksheet()
-    dept_cols = get_dept_columns(df)
+    col_info1, col_info2 = st.columns(2)
 
-    if "selected_dept" not in st.session_state:
-        st.session_state["selected_dept"] = "전체 부서"
-
-    # ---------- 사이드바 ----------
-    with st.sidebar:
+    with col_info1:
         st.markdown(
             f"""
-            <div style="
-                width:100%;
-                margin-top:-0.8rem;
-                margin-bottom:0.3rem;
-                font-size:2.0rem;
-                font-weight:900;
-                letter-spacing:0.05em;
-                color:#111827;
-            ">
-                {app_title}
+            <div class="info-card">
+              <div class="info-card-title">선택된 기간</div>
+              <div class="info-card-value">{html.escape(period_label_compact)}</div>
             </div>
             """,
             unsafe_allow_html=True,
         )
 
+    with col_info2:
         st.markdown(
-            "<hr style='margin:0.25rem 0; border:0; border-top:1px solid #e0e0e0;' />",
+            f"""
+            <div class="info-card">
+              <div class="info-card-title">선택된 부서</div>
+              <div class="info-card-value">{html.escape(dept_label)}</div>
+            </div>
+            """,
             unsafe_allow_html=True,
         )
 
-        # 인쇄 / 동기화
-        btn_cols = st.columns(2)
-        with btn_cols[0]:
-            if st.button("🖨 인쇄 미리보기", use_container_width=True):
-                st.session_state["print_requested"] = True
-        with btn_cols[1]:
-            if st.button("🔄 데이터 동기화", use_container_width=True):
-                load_data.clear()
-                st.rerun()
+    # 실제 내용
+    week_row = df[df[WEEK_COL] == selected_period].iloc[0]
 
-        st.markdown(
-            "<hr style='margin:0.35rem 0; border:0; border-top:1px solid #e0e0e0;' />",
-            unsafe_allow_html=True,
-        )
+    if selected_department == "전체":
+        inner_cards = []
+        for dept in DEPARTMENTS:
+            content = str(week_row.get(dept, "") or "").strip()
+            if not content:
+                continue
+            title_html = dept_title_html(dept)
+            body_html = content_to_html(content, large=False)
+            inner_html = f"<div class='dept-inner-card'>{title_html}{body_html}</div>"
+            inner_cards.append(inner_html)
 
-        # 기간 관리
-        week_options = df[WEEK_COL].astype(str).tolist()
-        selected_week = st.selectbox(
-            "기간 선택",
-            options=week_options,
-            index=0,
-            key="week_select",
-        )
+        if not inner_cards:
+            inner_cards.append(
+                "<div class='dept-inner-card'><div class='dept-content'>이 기간에는 등록된 내용이 없습니다.</div></div>"
+            )
 
-        last_week_str = df[WEEK_COL].astype(str).iloc[0]
-        last_start, last_end = parse_week_range(last_week_str)
-        if last_start and last_end:
-            span_days = (last_end - last_start).days + 1
-            default_weeks = 1 if span_days <= 7 else 2
-        else:
-            default_weeks = 2
+        card_html = "<div class='content-card'><div class='dept-grid'>" + "".join(inner_cards) + "</div></div>"
+        st.markdown(card_html, unsafe_allow_html=True)
 
-        st.markdown(
-            "<div style='font-size:0.8rem; margin-top:0.1rem; margin-bottom:0.1rem;'>새 기간 길이</div>",
-            unsafe_allow_html=True,
-        )
-        unit_choice = st.radio(
-            "새 기간 길이 선택",
-            ["직전 기간과 동일", "1주", "2주"],
-            index=0,
-            horizontal=True,
-            label_visibility="collapsed",
-        )
-
-        if unit_choice == "1주":
-            weeks_to_add = 1
-        elif unit_choice == "2주":
-            weeks_to_add = 2
-        else:
-            weeks_to_add = default_weeks
-
-        if last_start and last_end:
-            new_start = last_end + timedelta(days=1)
-        else:
-            new_start = datetime.today()
-
-        new_end = new_start + timedelta(days=7 * weeks_to_add - 1)
-        new_week_str = f"{new_start:%Y.%m.%d}~{new_end:%Y.%m.%d}"
-        st.caption(f"새 기간 미리보기: **{new_week_str}**")
-
-        if st.button("새 기간 추가('기간선택'에서 없는 경우)", use_container_width=True):
-            headers = ws.row_values(1)
-            new_row = ["" for _ in headers]
-            if WEEK_COL in headers:
-                idx = headers.index(WEEK_COL)
-                new_row[idx] = new_week_str
-            else:
-                ws.insert_cols([WEEK_COL], 1)
-                headers = ws.row_values(1)
-                new_row = ["" for _ in headers]
-                new_row[0] = new_week_str
-
-            ws.insert_row(new_row, index=2, value_input_option="USER_ENTERED")
-
-            load_data.clear()
-            st.success(f"새 기간 {new_week_str} 이(가) 추가되었습니다.")
-            st.rerun()
-
-        st.markdown(
-            "<hr style='margin:0.35rem 0; border:0; border-top:1px solid #e0e0e0;' />",
-            unsafe_allow_html=True,
-        )
-
-        # 부서 선택
-        all_depts = ["전체 부서"] + dept_cols
-        current_dept = st.session_state.get("selected_dept", "전체 부서")
-
-        n_cols = 3 if len(all_depts) >= 3 else len(all_depts)
-        dept_cols_ui = st.columns(n_cols)
-
-        for i, dept in enumerate(all_depts):
-            col = dept_cols_ui[i % n_cols]
-            button_type = "primary" if dept == current_dept else "secondary"
-            with col:
-                if st.button(
-                    dept,
-                    key=f"dept_btn_{dept}",
-                    use_container_width=True,
-                    type=button_type,
-                ):
-                    st.session_state["selected_dept"] = dept
-                    st.rerun()
-
-        # 현재 선택된 부서 필터
-        dept_filter = st.session_state.get("selected_dept", "전체 부서")
-
-        st.markdown(
-            "<hr style='margin:0.35rem 0; border:0; border-top:1px solid #e0e0e0;' />",
-            unsafe_allow_html=True,
-        )
-
-        # 부서 관리
-        st.markdown(
-            "<div style='font-weight:600; margin:0.05rem 0 0.2rem;'>부서 관리</div>",
-            unsafe_allow_html=True,
-        )
-        st.caption("표에서 부서명을 직접 수정·추가·삭제 후, 아래 저장 버튼을 눌러주세요.")
-
-        dept_df = pd.DataFrame({"부서": dept_cols})
-        edited_dept_df = st.data_editor(
-            dept_df,
-            num_rows="dynamic",
-            use_container_width=True,
-            key="dept_editor",
-        )
-
-        if st.button("부서 변경 사항 저장", use_container_width=True):
-            original = dept_cols
-            new_list = [
-                str(x).strip()
-                for x in edited_dept_df["부서"].tolist()
-                if str(x).strip()
-            ]
-
-            max_len = max(len(original), len(new_list))
-            renames = []
-            to_delete = []
-            to_add = []
-
-            for i in range(max_len):
-                old = original[i] if i < len(original) else None
-                new_name = new_list[i] if i < len(new_list) else None
-
-                if old and new_name:
-                    if old != new_name:
-                        renames.append((old, new_name))
-                elif old and not new_name:
-                    to_delete.append(old)
-                elif new_name and not old:
-                    to_add.append(new_name)
-
-            for old, new_name in renames:
-                col_idx = get_col_index(ws, old)
-                if col_idx is not None:
-                    ws.update_cell(1, col_idx, new_name)
-
-            if to_delete:
-                col_indices = []
-                for name in to_delete:
-                    idx = get_col_index(ws, name)
-                    if idx is not None:
-                        col_indices.append(idx)
-                for idx in sorted(col_indices, reverse=True):
-                    ws.delete_columns(idx)
-
-            for name in to_add:
-                headers_now = ws.row_values(1)
-                ws.add_cols(1)
-                new_idx = len(headers_now) + 1
-                ws.update_cell(1, new_idx, name)
-
-            load_data.clear()
-            st.success("부서 설정이 저장되었습니다.")
-            st.rerun()
-
-    # ---------- 상단: 펼치기 아이콘(>) + 링크 버튼들 ----------
-
-    # 1) 좌측 상단에 '>' 아이콘 버튼 (사이드바 펼치기 전용)
-    top_cols = st.columns([0.3, 7])
-    with top_cols[0]:
-        if st.button(">", key="open_sidebar_icon"):
-            toggle_sidebar("show")
-
-    # 2) 병원 일정 / 진료시간표 / 네이버 블로그 링크 버튼
-    nav_cols = st.columns(3)
-    with nav_cols[0]:
-        st.link_button(
-            "병원 일정 보기",
-            "https://calendar.google.com/calendar/u/0/r?pli=1",
-            type="secondary",
-        )
-    with nav_cols[1]:
-        st.link_button(
-            "의료진 진료시간표",
-            "https://docs.google.com/spreadsheets/d/1NwQadQSzlmWVmPN8U-AHw7ZmWbnKO0nzmc0M25XDwfo/edit?usp=sharing",
-            type="secondary",
-        )
-    with nav_cols[2]:
-        st.link_button(
-            "네이버 블로그",
-            "https://blog.naver.com/hisped2017",
-            type="secondary",
-        )
-
-    st.markdown("<div style='height:0.6rem'></div>", unsafe_allow_html=True)
-
-    # ---------- 메인 콘텐츠 ----------
-    row_df = df[df[WEEK_COL] == selected_week]
-    if row_df.empty:
-        st.error("선택한 기간의 데이터를 찾을 수 없습니다.")
-        return
-
-    row = row_df.iloc[0]
-
-    selected_indices = df.index[df[WEEK_COL] == selected_week].tolist()
-    selected_idx = selected_indices[0] if selected_indices else 0
-    prev_row = df.iloc[selected_idx + 1] if selected_idx + 1 < len(df) else None
-
-    edited_values = {}      # 전체 부서 모드
-    edited_single = {}      # 단일 부서 모드: {week_str: text}
-
-    dept_filter = st.session_state.get("selected_dept", "전체 부서")
-
-    if dept_filter == "전체 부서":
-        st.markdown(f"#### {selected_week}")
-
-        cols_main = st.columns(2)
-        for i, dept in enumerate(dept_cols):
-            current_text = ""
-            if dept in row.index and pd.notna(row[dept]):
-                current_text = str(row[dept])
-
-            col = cols_main[i % 2]
-            with col:
-                with st.container(border=True):
-                    st.markdown(f"**{dept}**")
-                    ta_key = f"ta_{dept}_{selected_week}"
-                    edited = st.text_area(
-                        label=f"{dept} 업무 내용",
-                        value=current_text,
-                        height=320,
-                        key=ta_key,
-                        label_visibility="collapsed",
-                        on_change=save_cell,
-                        args=(int(row["_sheet_row"]), dept, ta_key),
-                    )
-                    edited_values[dept] = edited
     else:
-        # 단독 부서 모드: 최신(선택) 기간 + 직전 기간 나란히
-        dept = dept_filter
-
-        cols = st.columns(2) if prev_row is not None else [st]
-
-        # 현재(선택) 기간
-        cur_text = ""
-        if dept in row.index and pd.notna(row[dept]):
-            cur_text = str(row[dept])
-
-        with cols[0]:
-            with st.container(border=True):
-                st.markdown(f"**{selected_week} · {dept}**")
-                ta_key_cur = f"ta_{dept}_{selected_week}"
-                edited_cur = st.text_area(
-                    label=f"{selected_week} · {dept} 업무 내용",
-                    value=cur_text,
-                    height=450,
-                    key=ta_key_cur,
-                    label_visibility="collapsed",
-                    on_change=save_cell,
-                    args=(int(row["_sheet_row"]), dept, ta_key_cur),
-                )
-                edited_single[selected_week] = edited_cur
-
-        # 직전 기간
-        if prev_row is not None:
-            prev_week = str(prev_row[WEEK_COL])
-            prev_text = ""
-            if dept in prev_row.index and pd.notna(prev_row[dept]):
-                prev_text = str(prev_row[dept])
-
-            with cols[1]:
-                with st.container(border=True):
-                    st.markdown(f"**{prev_week} · {dept}**")
-                    ta_key_prev = f"ta_{dept}_{prev_week}"
-                    edited_prev = st.text_area(
-                        label=f"{prev_week} · {dept} 업무 내용",
-                        value=prev_text,
-                        height=450,
-                        key=ta_key_prev,
-                        label_visibility="collapsed",
-                        on_change=save_cell,
-                        args=(int(prev_row["_sheet_row"]), dept, ta_key_prev),
-                    )
-                    edited_single[prev_week] = edited_prev
-
-    # 저장 버튼
-    if st.button("변경 내용 저장", type="primary"):
-        cells = []
-
-        if dept_filter == "전체 부서":
-            sheet_row = int(row["_sheet_row"])
-            for dept, val in edited_values.items():
-                col_idx = get_col_index(ws, dept)
-                if col_idx is not None:
-                    cells.append(Cell(row=sheet_row, col=col_idx, value=val))
+        content = str(week_row.get(selected_department, "") or "").strip()
+        title_html = dept_title_html(selected_department)
+        if content:
+            body_html = content_to_html(content, large=True)
         else:
-            dept = dept_filter
-            col_idx = get_col_index(ws, dept)
-            if col_idx is not None:
-                for week_str, text in edited_single.items():
-                    row_match = df[df[WEEK_COL] == week_str]
-                    if not row_match.empty:
-                        sheet_row = int(row_match.iloc[0]["_sheet_row"])
-                        cells.append(Cell(row=sheet_row, col=col_idx, value=text))
+            body_html = "<div class='dept-content'>이 기간에는 등록된 내용이 없습니다.</div>"
 
-        if not cells:
-            st.error("저장할 대상 부서를 찾지 못했습니다. 헤더 이름을 확인해 주세요.")
+        card_html = "<div class='content-card'><div class='dept-inner-card'>" + title_html + body_html + "</div></div>"
+        st.markdown(card_html, unsafe_allow_html=True)
+
+    with st.expander("디버그용: 현재 DataFrame 보기", expanded=False):
+        st.dataframe(df)
+
+
+# ---------------------------
+# 10. Sidebar 하단 - 부서 관리
+# ---------------------------
+st.sidebar.markdown("<br><br>", unsafe_allow_html=True)
+st.sidebar.markdown("---")
+
+with st.sidebar.expander("부서 관리", expanded=False):
+    st.caption("앱에서 사용할 부서 목록을 관리합니다. (현재 세션 기준)")
+
+    new_dept_name = st.text_input(
+        "새 부서 이름",
+        placeholder="예) 영상의학팀",
+        key="sidebar_new_dept_name"
+    )
+
+    if st.button("＋ 부서 추가", key="sidebar_add_dept_button"):
+        name = new_dept_name.strip()
+        if not name:
+            st.warning("부서 이름을 입력하세요.")
+        elif name in DEPARTMENTS:
+            st.warning("이미 존재하는 부서입니다.")
+        elif name == WEEK_COL:
+            st.warning("이 이름은 사용할 수 없습니다.")
         else:
-            ws.update_cells(cells)
-            load_data.clear()
-            st.success("구글 시트에 저장되었습니다.")
-            st.rerun()
+            st.session_state.departments.append(name)
+            DEPARTMENTS = st.session_state.departments
+            st.success(f"'{name}' 부서를 추가했습니다.")
 
-    # ---------- 인쇄 미리보기 ----------
-    if st.session_state.get("print_requested"):
-        title_html = escape_html(app_title)
-        week_html = escape_html(selected_week)
+    if DEPARTMENTS:
+        dept_to_remove = st.selectbox(
+            "삭제할 부서 선택",
+            options=DEPARTMENTS,
+            key="sidebar_dept_to_remove"
+        )
+        if st.button("－ 부서 삭제", key="sidebar_remove_dept_button"):
+            st.session_state.departments = [d for d in DEPARTMENTS if d != dept_to_remove]
+            DEPARTMENTS = st.session_state.departments
+            st.success(f"'{dept_to_remove}' 부서를 삭제했습니다.")
+    else:
+        st.caption("현재 등록된 부서가 없습니다.")
 
-        sections_html = ""
 
-        if dept_filter == "전체 부서":
-            for dept in dept_cols:
-                content = ""
-                if dept in row.index and pd.notna(row[dept]):
-                    content = str(row[dept])
-                content_html = escape_html(content)
-                sections_html += f"""
-                <div class="dept-card">
-                    <div class="dept-title">{escape_html(dept)}</div>
-                    <div class="dept-body">{content_html}</div>
-                </div>
-                """
-        else:
-            dept = dept_filter
-            content = ""
-            if dept in row.index and pd.notna(row[dept]):
-                content = str(row[dept])
-            content_html = escape_html(content)
-            sections_html += f"""
-            <div class="dept-card">
-                <div class="dept-title">{escape_html(dept)}</div>
-                <div class="dept-body">{content_html}</div>
+# ---------------------------
+# 11. 우측 하단 병원 로고 표시 (viewport 고정)
+# ---------------------------
+logo_path = None
+for fname in [
+    "히즈메디병원 로고-네모.png",   # 한글 파일명
+    "hospital_logo.png",            # 영어 파일명 옵션
+    "logo.png",
+]:
+    candidate = os.path.join(BASE_DIR, fname)
+    if os.path.exists(candidate):
+        logo_path = candidate
+        break
+
+if logo_path:
+    try:
+        with open(logo_path, "rb") as f:
+            img_bytes = f.read()
+        b64 = base64.b64encode(img_bytes).decode()
+        st.markdown(
+            f"""
+            <div style="
+                position: fixed;
+                bottom: 16px;
+                right: 18px;
+                z-index: 999;
+            ">
+                <img src="data:image/png;base64,{b64}" style="width:72px; opacity:0.96;">
             </div>
-            """
-
-        html = f"""
-        <html>
-          <head>
-            <meta charset="utf-8" />
-            <title>{title_html}</title>
-            <style>
-              @page {{
-                size: A4;
-                margin: 10mm;
-              }}
-              body {{
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-                font-size: 11px;
-                color: #111;
-              }}
-              h1 {{
-                font-size: 16px;
-                margin-bottom: 0.3rem;
-              }}
-              h2 {{
-                font-size: 13px;
-                margin: 0 0 0.6rem 0;
-              }}
-
-              .dept-grid {{
-                display: flex;
-                flex-wrap: wrap;
-                gap: 8px;
-              }}
-              .dept-card {{
-                box-sizing: border-box;
-                flex: 1 1 calc(50% - 8px);
-                border: 1px solid #d1d5db;
-                border-radius: 6px;
-                padding: 6px 8px;
-                page-break-inside: avoid;
-              }}
-              .dept-title {{
-                font-size: 11px;
-                font-weight: 700;
-                margin-bottom: 3px;
-              }}
-              .dept-body {{
-                font-size: 10px;
-                white-space: normal;
-              }}
-
-              @media print {{
-                .dept-card {{
-                  break-inside: avoid;
-                }}
-              }}
-            </style>
-          </head>
-          <body>
-            <h1>{title_html}</h1>
-            <h2>{week_html}</h2>
-            <div class="dept-grid">
-              {sections_html}
-            </div>
-            <script>
-              window.print();
-            </script>
-          </body>
-        </html>
-        """
-        components.html(html, height=0, width=0)
-        st.session_state["print_requested"] = False
-
-
-if __name__ == "__main__":
-    main()
+            """,
+            unsafe_allow_html=True,
+        )
+    except Exception:
+        pass
+else:
+    st.sidebar.caption(
+        "로고를 보이게 하려면 app.py와 같은 폴더에\n"
+        "'hospital_logo.png' 또는 '히즈메디병원 로고-네모.png' 파일을 두세요."
+    )
