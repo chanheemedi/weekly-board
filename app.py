@@ -156,9 +156,8 @@ def main():
     st.set_page_config(
         page_title=app_title,
         layout="wide",
-        initial_sidebar_state="collapsed",
+        initial_sidebar_state="expanded",
     )
-
     # ---------- 전역 스타일 ----------
     st.markdown(
         """
@@ -244,10 +243,18 @@ def main():
                 margin-bottom: 0.25rem;
             }
         }
+
+        /* 사이드바 접기/펼치기 아이콘(<)을 항상 보이게 */
+        [data-testid="collapsedControl"] {
+            opacity: 1 !important;
+            visibility: visible !important;
+            transition: none !important;
+        }
         </style>
         """,
         unsafe_allow_html=True,
     )
+
 
     df = load_data()
     if df.empty:
