@@ -152,7 +152,7 @@ def main():
     except Exception:
         pass
 
-    # 기본: 사이드바 펼쳐진 상태
+    # 👉 PC에서도 기본은 펼쳐진 상태로 시작
     st.set_page_config(
         page_title=app_title,
         layout="wide",
@@ -211,6 +211,14 @@ def main():
             font-weight: 800;
         }
 
+        /* 사이드바 접기/펼치기 아이콘 항상 보이게 */
+        [data-testid="collapsedControl"] {
+            opacity: 1 !important;
+        }
+        [data-testid="collapsedControl"]:hover {
+            opacity: 1 !important;
+        }
+
         /* 상단 링크 버튼(병원일정/진료시간표/블로그/의료기사 스크랩) 스타일 */
         .stLinkButton > button {
             border-radius: 999px;
@@ -225,14 +233,6 @@ def main():
         .stLinkButton > button:hover {
             background-color: #e5e7eb;
             border-color: #d1d5db;
-        }
-
-        /* 사이드바 접기/펼치기 아이콘 항상 보이게 */
-        [data-testid="collapsedControl"] {
-            opacity: 1 !important;
-        }
-        [data-testid="collapsedControl"]:hover {
-            opacity: 1 !important;
         }
 
         /* 📱 모바일 화면 대응 (폭이 900px 이하인 경우) */
@@ -476,7 +476,6 @@ def main():
     # ---------- 상단 네비게이션 버튼 ----------
     nav_cols = st.columns(4)
 
-    # 1) 병원 일정 보기
     with nav_cols[0]:
         st.link_button(
             "병원 일정 보기",
@@ -484,7 +483,6 @@ def main():
             type="secondary",
         )
 
-    # 2) 의료진 진료시간표
     with nav_cols[1]:
         st.link_button(
             "의료진 진료시간표",
@@ -492,7 +490,6 @@ def main():
             type="secondary",
         )
 
-    # 3) 네이버 블로그
     with nav_cols[2]:
         st.link_button(
             "네이버 블로그",
@@ -500,7 +497,6 @@ def main():
             type="secondary",
         )
 
-    # 4) 의료기사 스크랩
     with nav_cols[3]:
         st.link_button(
             "의료기사 스크랩",
