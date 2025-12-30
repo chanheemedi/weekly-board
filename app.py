@@ -152,12 +152,13 @@ def main():
     except Exception:
         pass
 
-    # 모바일에서 기본으로 사이드바 접힌 상태
+    # 기본: 사이드바 펼쳐진 상태
     st.set_page_config(
         page_title=app_title,
         layout="wide",
         initial_sidebar_state="expanded",
     )
+
     # ---------- 전역 스타일 ----------
     st.markdown(
         """
@@ -209,7 +210,8 @@ def main():
             font-size: 0.9rem;
             font-weight: 800;
         }
-        /* 상단 링크 버튼(병원일정/진료시간표/블로그) 스타일 */
+
+        /* 상단 링크 버튼(병원일정/진료시간표/블로그/의료기사 스크랩) 스타일 */
         .stLinkButton > button {
             border-radius: 999px;
             background-color: #f9fafb;
@@ -223,6 +225,14 @@ def main():
         .stLinkButton > button:hover {
             background-color: #e5e7eb;
             border-color: #d1d5db;
+        }
+
+        /* 사이드바 접기/펼치기 아이콘 항상 보이게 */
+        [data-testid="collapsedControl"] {
+            opacity: 1 !important;
+        }
+        [data-testid="collapsedControl"]:hover {
+            opacity: 1 !important;
         }
 
         /* 📱 모바일 화면 대응 (폭이 900px 이하인 경우) */
@@ -243,18 +253,10 @@ def main():
                 margin-bottom: 0.25rem;
             }
         }
-
-        /* 사이드바 접기/펼치기 아이콘(<)을 항상 보이게 */
-        [data-testid="collapsedControl"] {
-            opacity: 1 !important;
-            visibility: visible !important;
-            transition: none !important;
-        }
         </style>
         """,
         unsafe_allow_html=True,
     )
-
 
     df = load_data()
     if df.empty:
@@ -472,23 +474,37 @@ def main():
             st.rerun()
 
     # ---------- 상단 네비게이션 버튼 ----------
-    nav_cols = st.columns(3)
+    nav_cols = st.columns(4)
+
+    # 1) 병원 일정 보기
     with nav_cols[0]:
         st.link_button(
             "병원 일정 보기",
             "https://calendar.google.com/calendar/u/0/r?pli=1",
             type="secondary",
         )
+
+    # 2) 의료진 진료시간표
     with nav_cols[1]:
         st.link_button(
             "의료진 진료시간표",
             "https://docs.google.com/spreadsheets/d/1NwQadQSzlmWVmPN8U-AHw7ZmWbnKO0nzmc0M25XDwfo/edit?usp=sharing",
             type="secondary",
         )
+
+    # 3) 네이버 블로그
     with nav_cols[2]:
         st.link_button(
             "네이버 블로그",
             "https://blog.naver.com/hisped2017",
+            type="secondary",
+        )
+
+    # 4) 의료기사 스크랩
+    with nav_cols[3]:
+        st.link_button(
+            "의료기사 스크랩",
+            "https://hisnews-p6tawcdhd7g2xrfgutathk.streamlit.app/",
             type="secondary",
         )
 
