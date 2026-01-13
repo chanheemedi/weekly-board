@@ -10,58 +10,6 @@ import streamlit.components.v1 as components
 
 WEEK_COL = "WEEK"
 
-# ---------- URL helpers ----------
-
-URL_PATTERN = re.compile(r"(https?://[^\s]+)")
-
-
-def extract_urls(text: str):
-    """본문에서 URL만 뽑아서 중복 제거 리스트로 리턴."""
-    if not text:
-        return []
-    urls = URL_PATTERN.findall(text)
-    # 순서 유지하면서 중복 제거
-    return list(dict.fromkeys(urls))
-
-
-def link_label(u: str, idx: int) -> str:
-    """링크 유형에 따라 표시 텍스트 생성."""
-    u_low = u.lower()
-    is_pdf = u_low.endswith(".pdf") or "drive.google.com" in u_low
-    if is_pdf:
-        return f"PDF {idx})"
-    else:
-        return f"링크 {idx})"
-
-
-def render_link_list(text: str):
-    """텍스트 안의 URL들을 아래에 짧은 라벨로 렌더링."""
-    urls = extract_urls(text)
-    if not urls:
-        return
-
-    items_html = ""
-    for i, u in enumerate(urls, start=1):
-        label = link_label(u, i)
-        items_html += (
-            f'<li><a href="{u}" target="_blank" rel="noopener noreferrer">{label}</a></li>'
-        )
-
-    st.markdown(
-        f"""
-        <div style="margin-top:0.5rem; font-size:0.82rem;">
-          <div style="font-weight:600; margin-bottom:0.15rem;">링크 바로가기:</div>
-          <ul style="margin:0; padding-left:1.1rem; word-break:break-all; overflow-wrap:anywhere;">
-            {items_html}
-          </ul>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-# ---------- Google Sheet 연결 ----------
-
 
 @st.cache_resource(show_spinner=False)
 def get_worksheet():
@@ -197,6 +145,43 @@ def escape_html(text: str) -> str:
     return text
 
 
+# ---------- URL 추출 & 링크 바로가기 렌더링 ----------
+
+URL_PATTERN = re.compile(r"(https?://[^\s]+)")
+
+
+def extract_links(text: str):
+    """본문에서 http/https로 시작하는 URL만 추출."""
+    return URL_PATTERN.findall(text or "")
+
+
+def render_links_section(text: str):
+    """
+    본문 텍스트에서 URL을 찾아
+    아래에 '링크 바로가기:  🔗 1) 🔗 2) ...' 형태로 작게 렌더링.
+    """
+    urls = extract_links(text)
+    if not urls:
+        return
+
+    html_parts = [
+        '<div class="link-section">',
+        '  <span class="link-section-title">링크 바로가기:</span>',
+    ]
+
+    for idx, url in enumerate(urls, start=1):
+        html_parts.append(
+            f'  <a href="{url}" target="_blank" class="link-badge">🔗 {idx})</a>'
+        )
+
+    html_parts.append("</div>")
+
+    html = "\n".join(html_parts)
+    st.markdown(html, unsafe_allow_html=True)
+
+
+# ---------- 메인 ----------
+
 def main():
     app_title = "HISMEDI † Weekly report"
     try:
@@ -204,7 +189,7 @@ def main():
     except Exception:
         pass
 
-    # PC 기본은 사이드바 펼쳐진 상태
+    # 기본은 사이드바 펼쳐진 상태
     st.set_page_config(
         page_title=app_title,
         layout="wide",
@@ -262,7 +247,7 @@ def main():
             font-size: 0.9rem;
             font-weight: 800;
         }
-        /* 상단 링크 버튼 스타일 */
+        /* 상단 링크 버튼(병원일정/진료시간표/블로그/기사 스크랩) 스타일 */
         .stLinkButton > button {
             border-radius: 999px;
             background-color: #f9fafb;
@@ -278,16 +263,40 @@ def main():
             border-color: #d1d5db;
         }
 
-        /* 모바일 화면 대응 */
+        /* 링크 바로가기: 🔗 1) 🔗 2) ... */
+        .link-section {
+            font-size: 0.85rem;
+            margin-top: 0.25rem;
+            color: #4b5563;
+        }
+        .link-section-title {
+            font-weight: 600;
+            margin-right: 0.25rem;
+        }
+        .link-badge {
+            display: inline-block;
+            margin-right: 0.35rem;
+            text-decoration: none;
+            font-size: 0.85rem;
+            color: #2563eb;
+        }
+        .link-badge:hover {
+            text-decoration: underline;
+        }
+
+        /* 📱 모바일 화면 대응 (폭이 900px 이하인 경우) */
         @media (max-width: 900px) {
+            /* 사이드바 폭 줄이기 */
             [data-testid="stSidebar"] {
                 min-width: 260px;
                 max-width: 260px;
             }
+            /* 본문 좌우 여백 조금 줄이기 */
             [data-testid="block-container"] {
                 padding-left: 0.6rem;
                 padding-right: 0.6rem;
             }
+            /* 상단 링크 버튼은 가로 전체를 쓰도록 */
             .stLinkButton > button {
                 width: 100%;
                 margin-bottom: 0.25rem;
@@ -581,9 +590,8 @@ def main():
                         args=(int(row["_sheet_row"]), dept, ta_key),
                     )
                     edited_values[dept] = edited
-
-                    # 이 부서 내용에 URL이 있으면 아래에 링크 목록 표시
-                    render_link_list(edited)
+                    # 링크 바로가기 렌더링
+                    render_links_section(edited)
 
     else:
         dept = dept_filter
@@ -608,8 +616,7 @@ def main():
                     args=(int(row["_sheet_row"]), dept, ta_key_cur),
                 )
                 edited_single[selected_week] = edited_cur
-
-                render_link_list(edited_cur)
+                render_links_section(edited_cur)
 
         # 직전 기간
         if prev_row is not None:
@@ -632,8 +639,7 @@ def main():
                         args=(int(prev_row["_sheet_row"]), dept, ta_key_prev),
                     )
                     edited_single[prev_week] = edited_prev
-
-                    render_link_list(edited_prev)
+                    render_links_section(edited_prev)
 
     # ---------- 저장 버튼 ----------
     if st.button("변경 내용 저장", type="primary"):
