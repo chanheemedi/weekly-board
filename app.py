@@ -204,7 +204,7 @@ def main():
     except Exception:
         pass
 
-    # PC 기본은 펼쳐진 상태
+    # PC 기본은 사이드바 펼쳐진 상태
     st.set_page_config(
         page_title=app_title,
         layout="wide",
@@ -582,9 +582,8 @@ def main():
                     )
                     edited_values[dept] = edited
 
-                    # 의료기사 스크랩인 경우 링크 목록 렌더링
-                    if dept == "의료기사 스크랩":
-                        render_link_list(edited)
+                    # 이 부서 내용에 URL이 있으면 아래에 링크 목록 표시
+                    render_link_list(edited)
 
     else:
         dept = dept_filter
@@ -610,8 +609,7 @@ def main():
                 )
                 edited_single[selected_week] = edited_cur
 
-                if dept == "의료기사 스크랩":
-                    render_link_list(edited_cur)
+                render_link_list(edited_cur)
 
         # 직전 기간
         if prev_row is not None:
@@ -635,8 +633,7 @@ def main():
                     )
                     edited_single[prev_week] = edited_prev
 
-                    if dept == "의료기사 스크랩":
-                        render_link_list(edited_prev)
+                    render_link_list(edited_prev)
 
     # ---------- 저장 버튼 ----------
     if st.button("변경 내용 저장", type="primary"):
