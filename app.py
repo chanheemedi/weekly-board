@@ -1,15 +1,5 @@
-아래 코드 전체를 `app.py`에 그대로 덮어쓰기 해서 사용하면 돼요.
-
-변경 포함 사항:
-
-* `initial_sidebar_state="expanded"` → PC에서 기본으로 사이드바 펼쳐짐
-* 사이드바 접기/펼치기 아이콘 항상 보이도록 CSS 추가
-* 상단 링크 버튼 4개:
-  병원 일정 보기 / 의료진 진료시간표 / 네이버 블로그 / 의료기사 스크랩
-* 본문 안의 URL 자동 추출 → 카드 아래
-  `링크 바로가기:`
-  `- [PDF 1)](…)`, `- [링크 2)](…)` 처럼 짧은 레이블로 클릭 가능하게 표시
-  (구글 드라이브·PDF 링크는 `PDF n)` / 나머지는 `링크 n)`)
+맞아요, 방금 에러는 제가 예전에 설명용으로 쓴 줄(코드가 아닌 문장)을 같이 붙여넣으면서 난 거라서, 이번엔 **설명 없이 온전한 app.py 코드만** 줄게요.
+지금 파일 내용 전부 지우고, 아래 코드를 **위에서부터 끝까지 그대로** 붙여 넣으면 됩니다.
 
 ```python
 import re
@@ -24,13 +14,13 @@ import streamlit.components.v1 as components
 
 WEEK_COL = "WEEK"
 
-# ---------- URL 추출 & 라벨링 ----------
+# ---------- URL helpers ----------
 
 URL_PATTERN = re.compile(r"(https?://[^\s]+)")
 
 
 def extract_urls(text: str):
-    """텍스트에서 URL만 뽑아서 중복 제거하고 리스트로 반환."""
+    """본문에서 URL만 뽑아서 중복 제거 리스트로 리턴."""
     if not text:
         return []
     urls = URL_PATTERN.findall(text)
@@ -39,9 +29,8 @@ def extract_urls(text: str):
 
 
 def link_label(u: str, idx: int) -> str:
-    """URL 종류에 따라 'PDF 1)', '링크 1)' 이런 식으로 라벨 생성."""
+    """링크 유형에 따라 표시 텍스트 생성."""
     u_low = u.lower()
-    # 주소에 .pdf 가 있거나, 구글 드라이브면 PDF 취급
     is_pdf = u_low.endswith(".pdf") or "drive.google.com" in u_low
     if is_pdf:
         return f"PDF {idx})"
@@ -49,7 +38,33 @@ def link_label(u: str, idx: int) -> str:
         return f"링크 {idx})"
 
 
-# ---------- 구글 시트 관련 ----------
+def render_link_list(text: str):
+    """텍스트 안의 URL들을 아래에 짧은 라벨로 렌더링."""
+    urls = extract_urls(text)
+    if not urls:
+        return
+
+    items_html = ""
+    for i, u in enumerate(urls, start=1):
+        label = link_label(u, i)
+        items_html += (
+            f'<li><a href="{u}" target="_blank" rel="noopener noreferrer">{label}</a></li>'
+        )
+
+    st.markdown(
+        f"""
+        <div style="margin-top:0.5rem; font-size:0.82rem;">
+          <div style="font-weight:600; margin-bottom:0.15rem;">링크 바로가기:</div>
+          <ul style="margin:0; padding-left:1.1rem; word-break:break-all; overflow-wrap:anywhere;">
+            {items_html}
+          </ul>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+# ---------- Google Sheet 연결 ----------
 
 
 @st.cache_resource(show_spinner=False)
@@ -193,7 +208,7 @@ def main():
     except Exception:
         pass
 
-    # 기본: 사이드바 펼쳐진 상태
+    # PC 기본은 펼쳐진 상태
     st.set_page_config(
         page_title=app_title,
         layout="wide",
@@ -251,7 +266,7 @@ def main():
             font-size: 0.9rem;
             font-weight: 800;
         }
-        /* 상단 링크 버튼(병원일정/진료시간표/블로그/스크랩) 스타일 */
+        /* 상단 링크 버튼 스타일 */
         .stLinkButton > button {
             border-radius: 999px;
             background-color: #f9fafb;
@@ -267,28 +282,16 @@ def main():
             border-color: #d1d5db;
         }
 
-        /* 사이드바 접기/펼치기 아이콘 항상 보이게 */
-        [data-testid="collapsedControl"] {
-            opacity: 1 !important;
-            visibility: visible !important;
-        }
-        [data-testid="collapsedControl"] svg {
-            color: #4b5563;
-        }
-
-        /* 📱 모바일 화면 대응 (폭이 900px 이하인 경우) */
+        /* 모바일 화면 대응 */
         @media (max-width: 900px) {
-            /* 사이드바 폭 줄이기 */
             [data-testid="stSidebar"] {
                 min-width: 260px;
                 max-width: 260px;
             }
-            /* 본문 좌우 여백 조금 줄이기 */
             [data-testid="block-container"] {
                 padding-left: 0.6rem;
                 padding-right: 0.6rem;
             }
-            /* 상단 링크 버튼은 가로 전체를 쓰도록 */
             .stLinkButton > button {
                 width: 100%;
                 margin-bottom: 0.25rem;
@@ -583,18 +586,10 @@ def main():
                     )
                     edited_values[dept] = edited
 
-                    # 링크 바로가기 출력
-                    urls = extract_urls(edited)
-                    if urls:
-                        st.markdown(
-                            "<div style='margin-top:0.25rem; font-size:0.8rem; color:#374151;'>링크 바로가기:</div>",
-                            unsafe_allow_html=True,
-                        )
-                        link_lines = []
-                        for idx, u in enumerate(urls, start=1):
-                            label = link_label(u, idx)
-                            link_lines.append(f"- [{label}]({u})")
-                        st.markdown("\n".join(link_lines))
+                    # 의료기사 스크랩인 경우 링크 목록 렌더링
+                    if dept == "의료기사 스크랩":
+                        render_link_list(edited)
+
     else:
         dept = dept_filter
         cols = st.columns(2) if prev_row is not None else [st]
@@ -619,17 +614,8 @@ def main():
                 )
                 edited_single[selected_week] = edited_cur
 
-                urls_cur = extract_urls(edited_cur)
-                if urls_cur:
-                    st.markdown(
-                        "<div style='margin-top:0.25rem; font-size:0.8rem; color:#374151;'>링크 바로가기:</div>",
-                        unsafe_allow_html=True,
-                    )
-                    link_lines = []
-                    for idx, u in enumerate(urls_cur, start=1):
-                        label = link_label(u, idx)
-                        link_lines.append(f"- [{label}]({u})")
-                    st.markdown("\n".join(link_lines))
+                if dept == "의료기사 스크랩":
+                    render_link_list(edited_cur)
 
         # 직전 기간
         if prev_row is not None:
@@ -653,17 +639,8 @@ def main():
                     )
                     edited_single[prev_week] = edited_prev
 
-                    urls_prev = extract_urls(edited_prev)
-                    if urls_prev:
-                        st.markdown(
-                            "<div style='margin-top:0.25rem; font-size:0.8rem; color:#374151;'>링크 바로가기:</div>",
-                            unsafe_allow_html=True,
-                        )
-                        link_lines = []
-                        for idx, u in enumerate(urls_prev, start=1):
-                            label = link_label(u, idx)
-                            link_lines.append(f"- [{label}]({u})")
-                        st.markdown("\n".join(link_lines))
+                    if dept == "의료기사 스크랩":
+                        render_link_list(edited_prev)
 
     # ---------- 저장 버튼 ----------
     if st.button("변경 내용 저장", type="primary"):
@@ -798,3 +775,6 @@ def main():
 if __name__ == "__main__":
     main()
 ```
+
+이걸 그대로 붙여 넣고 저장–배포까지 한 번 돌려보고,
+의료기사 스크랩 칸에 URL / PDF 주소 적어서 링크가 `링크 1)`, `PDF 1)`처럼 잘 뜨는지만 확인해보면 됩니다.
