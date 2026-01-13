@@ -1,3 +1,17 @@
+아래 코드 전체를 `app.py`에 그대로 덮어쓰기 해서 사용하면 돼요.
+
+변경 포함 사항:
+
+* `initial_sidebar_state="expanded"` → PC에서 기본으로 사이드바 펼쳐짐
+* 사이드바 접기/펼치기 아이콘 항상 보이도록 CSS 추가
+* 상단 링크 버튼 4개:
+  병원 일정 보기 / 의료진 진료시간표 / 네이버 블로그 / 의료기사 스크랩
+* 본문 안의 URL 자동 추출 → 카드 아래
+  `링크 바로가기:`
+  `- [PDF 1)](…)`, `- [링크 2)](…)` 처럼 짧은 레이블로 클릭 가능하게 표시
+  (구글 드라이브·PDF 링크는 `PDF n)` / 나머지는 `링크 n)`)
+
+```python
 import re
 from datetime import datetime, timedelta
 
@@ -9,6 +23,33 @@ from google.oauth2.service_account import Credentials
 import streamlit.components.v1 as components
 
 WEEK_COL = "WEEK"
+
+# ---------- URL 추출 & 라벨링 ----------
+
+URL_PATTERN = re.compile(r"(https?://[^\s]+)")
+
+
+def extract_urls(text: str):
+    """텍스트에서 URL만 뽑아서 중복 제거하고 리스트로 반환."""
+    if not text:
+        return []
+    urls = URL_PATTERN.findall(text)
+    # 순서 유지하면서 중복 제거
+    return list(dict.fromkeys(urls))
+
+
+def link_label(u: str, idx: int) -> str:
+    """URL 종류에 따라 'PDF 1)', '링크 1)' 이런 식으로 라벨 생성."""
+    u_low = u.lower()
+    # 주소에 .pdf 가 있거나, 구글 드라이브면 PDF 취급
+    is_pdf = u_low.endswith(".pdf") or "drive.google.com" in u_low
+    if is_pdf:
+        return f"PDF {idx})"
+    else:
+        return f"링크 {idx})"
+
+
+# ---------- 구글 시트 관련 ----------
 
 
 @st.cache_resource(show_spinner=False)
@@ -145,19 +186,6 @@ def escape_html(text: str) -> str:
     return text
 
 
-# ---------- URL 추출 & 링크 미리보기용 함수 ----------
-URL_PATTERN = re.compile(r"(https?://[^\s]+)")
-
-
-def extract_urls(text: str):
-    """텍스트에서 URL만 뽑아서 중복 제거하고 리스트로 반환."""
-    if not text:
-        return []
-    urls = URL_PATTERN.findall(text)
-    # 순서 유지하면서 중복 제거
-    return list(dict.fromkeys(urls))
-
-
 def main():
     app_title = "HISMEDI † Weekly report"
     try:
@@ -165,7 +193,7 @@ def main():
     except Exception:
         pass
 
-    # PC에서 기본은 펼쳐진 상태
+    # 기본: 사이드바 펼쳐진 상태
     st.set_page_config(
         page_title=app_title,
         layout="wide",
@@ -223,16 +251,7 @@ def main():
             font-size: 0.9rem;
             font-weight: 800;
         }
-
-        /* 사이드바 접기/펼치기 아이콘 항상 보이게 */
-        [data-testid="collapsedControl"] {
-            opacity: 1 !important;
-        }
-        [data-testid="collapsedControl"]:hover {
-            opacity: 1 !important;
-        }
-
-        /* 상단 링크 버튼 스타일 */
+        /* 상단 링크 버튼(병원일정/진료시간표/블로그/스크랩) 스타일 */
         .stLinkButton > button {
             border-radius: 999px;
             background-color: #f9fafb;
@@ -246,6 +265,15 @@ def main():
         .stLinkButton > button:hover {
             background-color: #e5e7eb;
             border-color: #d1d5db;
+        }
+
+        /* 사이드바 접기/펼치기 아이콘 항상 보이게 */
+        [data-testid="collapsedControl"] {
+            opacity: 1 !important;
+            visibility: visible !important;
+        }
+        [data-testid="collapsedControl"] svg {
+            color: #4b5563;
         }
 
         /* 📱 모바일 화면 대응 (폭이 900px 이하인 경우) */
@@ -530,7 +558,6 @@ def main():
     edited_values = {}   # 전체 부서 모드
     edited_single = {}   # 단일 부서 모드
 
-    # ---------- 전체 부서 모드 ----------
     if dept_filter == "전체 부서":
         st.markdown(f"#### {selected_week}")
 
@@ -556,17 +583,18 @@ def main():
                     )
                     edited_values[dept] = edited
 
-                    # 🔗 URL 미리보기: 클릭 가능한 파란 링크 리스트
+                    # 링크 바로가기 출력
                     urls = extract_urls(edited)
                     if urls:
                         st.markdown(
                             "<div style='margin-top:0.25rem; font-size:0.8rem; color:#374151;'>링크 바로가기:</div>",
                             unsafe_allow_html=True,
                         )
-                        for u in urls:
-                            st.markdown(f"- [{u}]({u})")
-
-    # ---------- 단일 부서 모드 ----------
+                        link_lines = []
+                        for idx, u in enumerate(urls, start=1):
+                            label = link_label(u, idx)
+                            link_lines.append(f"- [{label}]({u})")
+                        st.markdown("\n".join(link_lines))
     else:
         dept = dept_filter
         cols = st.columns(2) if prev_row is not None else [st]
@@ -597,8 +625,11 @@ def main():
                         "<div style='margin-top:0.25rem; font-size:0.8rem; color:#374151;'>링크 바로가기:</div>",
                         unsafe_allow_html=True,
                     )
-                    for u in urls_cur:
-                        st.markdown(f"- [{u}]({u})")
+                    link_lines = []
+                    for idx, u in enumerate(urls_cur, start=1):
+                        label = link_label(u, idx)
+                        link_lines.append(f"- [{label}]({u})")
+                    st.markdown("\n".join(link_lines))
 
         # 직전 기간
         if prev_row is not None:
@@ -628,8 +659,11 @@ def main():
                             "<div style='margin-top:0.25rem; font-size:0.8rem; color:#374151;'>링크 바로가기:</div>",
                             unsafe_allow_html=True,
                         )
-                        for u in urls_prev:
-                            st.markdown(f"- [{u}]({u})")
+                        link_lines = []
+                        for idx, u in enumerate(urls_prev, start=1):
+                            label = link_label(u, idx)
+                            link_lines.append(f"- [{label}]({u})")
+                        st.markdown("\n".join(link_lines))
 
     # ---------- 저장 버튼 ----------
     if st.button("변경 내용 저장", type="primary"):
@@ -763,3 +797,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+```
