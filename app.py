@@ -145,6 +145,19 @@ def escape_html(text: str) -> str:
     return text
 
 
+# ---------- URL 추출 & 링크 미리보기용 함수 ----------
+URL_PATTERN = re.compile(r"(https?://[^\s]+)")
+
+
+def extract_urls(text: str):
+    """텍스트에서 URL만 뽑아서 중복 제거하고 리스트로 반환."""
+    if not text:
+        return []
+    urls = URL_PATTERN.findall(text)
+    # 순서 유지하면서 중복 제거
+    return list(dict.fromkeys(urls))
+
+
 def main():
     app_title = "HISMEDI † Weekly report"
     try:
@@ -152,7 +165,7 @@ def main():
     except Exception:
         pass
 
-    # 👉 PC에서도 기본은 펼쳐진 상태로 시작
+    # PC에서 기본은 펼쳐진 상태
     st.set_page_config(
         page_title=app_title,
         layout="wide",
@@ -219,7 +232,7 @@ def main():
             opacity: 1 !important;
         }
 
-        /* 상단 링크 버튼(병원일정/진료시간표/블로그/의료기사 스크랩) 스타일 */
+        /* 상단 링크 버튼 스타일 */
         .stLinkButton > button {
             border-radius: 999px;
             background-color: #f9fafb;
@@ -475,28 +488,24 @@ def main():
 
     # ---------- 상단 네비게이션 버튼 ----------
     nav_cols = st.columns(4)
-
     with nav_cols[0]:
         st.link_button(
             "병원 일정 보기",
             "https://calendar.google.com/calendar/u/0/r?pli=1",
             type="secondary",
         )
-
     with nav_cols[1]:
         st.link_button(
             "의료진 진료시간표",
             "https://docs.google.com/spreadsheets/d/1NwQadQSzlmWVmPN8U-AHw7ZmWbnKO0nzmc0M25XDwfo/edit?usp=sharing",
             type="secondary",
         )
-
     with nav_cols[2]:
         st.link_button(
             "네이버 블로그",
             "https://blog.naver.com/hisped2017",
             type="secondary",
         )
-
     with nav_cols[3]:
         st.link_button(
             "의료기사 스크랩",
@@ -521,6 +530,7 @@ def main():
     edited_values = {}   # 전체 부서 모드
     edited_single = {}   # 단일 부서 모드
 
+    # ---------- 전체 부서 모드 ----------
     if dept_filter == "전체 부서":
         st.markdown(f"#### {selected_week}")
 
@@ -546,6 +556,17 @@ def main():
                     )
                     edited_values[dept] = edited
 
+                    # 🔗 URL 미리보기: 클릭 가능한 파란 링크 리스트
+                    urls = extract_urls(edited)
+                    if urls:
+                        st.markdown(
+                            "<div style='margin-top:0.25rem; font-size:0.8rem; color:#374151;'>링크 바로가기:</div>",
+                            unsafe_allow_html=True,
+                        )
+                        for u in urls:
+                            st.markdown(f"- [{u}]({u})")
+
+    # ---------- 단일 부서 모드 ----------
     else:
         dept = dept_filter
         cols = st.columns(2) if prev_row is not None else [st]
@@ -570,6 +591,15 @@ def main():
                 )
                 edited_single[selected_week] = edited_cur
 
+                urls_cur = extract_urls(edited_cur)
+                if urls_cur:
+                    st.markdown(
+                        "<div style='margin-top:0.25rem; font-size:0.8rem; color:#374151;'>링크 바로가기:</div>",
+                        unsafe_allow_html=True,
+                    )
+                    for u in urls_cur:
+                        st.markdown(f"- [{u}]({u})")
+
         # 직전 기간
         if prev_row is not None:
             prev_week = str(prev_row[WEEK_COL])
@@ -591,6 +621,15 @@ def main():
                         args=(int(prev_row["_sheet_row"]), dept, ta_key_prev),
                     )
                     edited_single[prev_week] = edited_prev
+
+                    urls_prev = extract_urls(edited_prev)
+                    if urls_prev:
+                        st.markdown(
+                            "<div style='margin-top:0.25rem; font-size:0.8rem; color:#374151;'>링크 바로가기:</div>",
+                            unsafe_allow_html=True,
+                        )
+                        for u in urls_prev:
+                            st.markdown(f"- [{u}]({u})")
 
     # ---------- 저장 버튼 ----------
     if st.button("변경 내용 저장", type="primary"):
