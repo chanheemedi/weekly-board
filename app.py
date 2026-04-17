@@ -1,4 +1,3 @@
-import requests
 import re
 from datetime import datetime, timedelta
 import gspread
@@ -8,30 +7,6 @@ import streamlit as st
 from google.oauth2.service_account import Credentials
 import streamlit.components.v1 as components
 
-# --- 보안 시작 ---
-def check_ip():
-    # 1. 병원 공인 IP 앞자리 (반드시 네이버 '내 IP 확인' 결과로 수정하세요)
-    ALLOWED_PREFIX = "211.123" 
-    try:
-        # 아래 한 줄이 중간에 끊기지 않도록 하는 것이 핵심입니다!
-        user_ip = requests.get("
-https://api64.ipify.org
-", timeout=5).text
-        
-        if not user_ip.startswith(ALLOWED_PREFIX):
-            st.error(f"❌ 접속 불가 (접속된 IP: {user_ip})")
-            st.stop()
-    except Exception as e:
-        # 네트워크 오류 등으로 IP를 못 가져올 경우 실행
-        st.warning("네트워크 확인 중 오류가 발생했습니다.")
-        st.stop()
-
-# 함수 정의 후 곧바로 실행
-check_ip()
-# --- 보안 끝 ---
-
-# (중요) 기존에 적으셨던 check_ip_permission()은 삭제하세요. 
-# 위에서 만든 함수 이름이 check_ip()이므로 중복되거나 에러가 날 수 있습니다.
 
 WEEK_COL = "WEEK"
 
