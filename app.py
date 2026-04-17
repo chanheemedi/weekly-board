@@ -1,6 +1,6 @@
+import requests
 import re
 from datetime import datetime, timedelta
-
 import gspread
 from gspread.cell import Cell
 import pandas as pd
@@ -8,8 +8,31 @@ import streamlit as st
 from google.oauth2.service_account import Credentials
 import streamlit.components.v1 as components
 
-WEEK_COL = "WEEK"
+def check_ip_permission():
+    # 1. 병원 허용 IP 대역 설정 (앞의 두 마디만 입력)
+    ALLOWED_PREFIX = "192.168" 
 
+    try:
+        # 2. 접속자의 공인 IP 가져오기
+        user_ip = requests.get("
+https://api64.ipify.org
+", timeout=5).text
+        
+        # 3. 앞부분이 일치하는지 확인
+        if not user_ip.startswith(ALLOWED_PREFIX):
+            st.error(f"❌ 병원 외 지역에서는 접속이 차단됩니다. (접속 IP: {user_ip})")
+            st.info("병원 내부망(Wi-Fi 또는 유선랜)을 이용해 주세요.")
+            st.stop()
+            
+    except Exception:
+        # IP 확인 불가 시 보안을 위해 차단하거나 로그 출력
+        st.warning("네트워크 확인 중 오류가 발생했습니다.")
+        st.stop()
+
+# 프로그램 실행 시 가장 먼저 실행
+check_ip_permission()
+
+WEEK_COL = "WEEK"
 
 @st.cache_resource(show_spinner=False)
 def get_worksheet():
