@@ -8,23 +8,28 @@ import streamlit as st
 from google.oauth2.service_account import Credentials
 import streamlit.components.v1 as components
 
-# --- 보안 시작 ---
+# --- 보안 시작 (이 블록을 정확히 복사하세요) ---
 def check_ip():
-ALLOWED_PREFIX = "192.168" # 실제 병원 IP 앞 2마디로 수정하세요
-try:
-# 한 줄로 정확히 입력
-user_ip = requests.get("https://api64.ipify.org", timeout=5).text
-if not user_ip.startswith(ALLOWED_PREFIX):
-st.error(f"❌ 접속 불가 (IP: {user_ip})")
-st.stop()
-except:
-st.warning("네트워크 확인 중...")
-st.stop()
+    # 함수 내부이므로 반드시 여기서부터는 '들여쓰기'가 되어야 합니다.
+    ALLOWED_PREFIX = "192.168" 
+    try:
+        # 주소를 한 줄로 붙여서 작성해야 합니다.
+        user_ip = requests.get("
+https://api64.ipify.org
+", timeout=5).text
+        if not user_ip.startswith(ALLOWED_PREFIX):
+            st.error(f"❌ 접속 불가 (IP: {user_ip})")
+            st.stop()
+    except Exception as e:
+        st.warning("네트워크 확인 중 오류가 발생했습니다.")
+        st.stop()
 
+# 함수 정의가 끝난 후, 들여쓰기 없이 호출합니다.
 check_ip()
+# --- 보안 끝 ---
 
-# 프로그램 실행 시 가장 먼저 실행
-check_ip_permission()
+# (중요) 기존에 적으셨던 check_ip_permission()은 삭제하세요. 
+# 위에서 만든 함수 이름이 check_ip()이므로 중복되거나 에러가 날 수 있습니다.
 
 WEEK_COL = "WEEK"
 
